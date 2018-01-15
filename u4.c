@@ -37,20 +37,13 @@ int pop(void) {
     return n;
 }
 
-void nil(void);
-void one(void);
-void two(void);
-void three(void);
-void dolist(void);
-
 #define NEXT (-1)
 
 int ip = 0;
 
-
 char name[NMAX] = 
    //0123
-    "one\0";
+    "nil\0";
    //4  free <-----+
    //              |
 int nptr = 4; // --+
@@ -62,35 +55,21 @@ typedef union {
     int name;
 } cell_t;
 
-
-cell_t dict[DMAX] = {
-    {.prev = -1},      // 0 <------+
-    {.name =  0},      // 1        |
-    {.code = one},     // 2*       |
-};                     // 3  free  |
-                       //          |
-int prev = 0; // ------------------+
-int here = 3;
-
 void nil(void) {
     // printf("nil\n");
 }
 
-void one(void) {
-    printf("I am one!\n");
-}
 
-void two(void) {
-    printf("I am two!\n");
-}
-
-void three(void) {
-    printf("I am three!\n");
-}
-
-void four(void) {
-    printf("I am four!\n");
-}
+cell_t dict[DMAX] = {
+    {.data = 10},      // 0 base holder
+    {.data = 1},       // 1 running holder
+    {.prev = -1},      // 2 <------+
+    {.name =  0},      // 3        |
+    {.code = nil},     // 4*       |
+};                     // 5  free  |
+                       //          |
+int prev = 2; // ------------------+
+int here = 5;
 
 void dot(void) {
     printf("%d\n", pop());
@@ -182,7 +161,7 @@ void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
     }
 }
 
-int _dump(int c, int *e, void *v) {
+int walk_dump(int c, int *e, void *v) {
     int *pc = (int *)v;
     int i;
     printf("\n");
@@ -197,20 +176,20 @@ int _dump(int c, int *e, void *v) {
 }
 void dump(void) {
     int lc = here;
-    walk(prev, _dump, NULL, &lc);
+    walk(prev, walk_dump, NULL, &lc);
     printf("\n");
 }
 
-int _words(int c, int *e, void *v) {
+int walk_words(int c, int *e, void *v) {
     printf("%s ", &name[dict[c+1].name]);
     return 0;
 }
 void words(void) {
-    walk(prev, _words, NULL, NULL);
+    walk(prev, walk_words, NULL, NULL);
     printf("\n");
 }
 
-int _tick(int c, int *e, void *v) {
+int walk_tick(int c, int *e, void *v) {
     if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
         *e = c+2;
         return -1;
@@ -219,41 +198,33 @@ int _tick(int c, int *e, void *v) {
 }
 int tick(char *name) {
     int e = -1;
-    walk(prev, _tick, &e, name);
+    walk(prev, walk_tick, &e, name);
     return e;
 }
 
-#define REG(c) {printf("%16s = %d\n", #c, (int)c); reg(c);}
+#ifdef INNER_TEST
 
-void inner_init(void) {
-    int i;
-    for (i=here; i<DMAX; i++) {
-        dict[i].data = NEXT;
-    }
-    REG(nil);
-    REG(dolist);
-    REG(dot);
-    REG(branch);
-    REG(branchnotzero);
+void one(void) {
+    printf("I am one!\n");
+}
 
-    create("pushlit");
-    comma((int)&pushlit);
-    
-    create(".");
-    comma((int)&dot);
-    
-    create("branch");
-    comma((int)&branch);
+void two(void) {
+    printf("I am two!\n");
+}
 
-    create("branchnotzero");
-    comma((int)&branchnotzero);
+void three(void) {
+    printf("I am three!\n");
+}
+
+void four(void) {
+    printf("I am four!\n");
 }
 
 void inner_test(void) {
-    REG(one);
-    REG(two);
-    REG(three);
-    REG(four);
+    reg(one);
+    reg(two);
+    reg(three);
+    reg(four);
 
     create("two");
     comma((int)&two);
@@ -324,6 +295,8 @@ void inner_test(void) {
     execute(tick("branchtest"));
 }
 
+#endif
+
 // INNER STUFF } --------
 
 // OUTER STUFF { --------
@@ -387,12 +360,16 @@ void token(char *lexeme) {
     return;
 }
 
+#if 0
 int _base = 10;
 int _running = 1;
+#endif
+#define BASE (dict[0].data)
+#define RUNNING (dict[1].data)
 
 int outer(void) {
     int addr;
-    while (_running) {
+    while (RUNNING) {
         token(_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
             //printf("invalid tokenp:%d\n", tokenp);
@@ -406,14 +383,14 @@ int outer(void) {
             // not found, try to interpret as a number
             char *notnumber;
             int n;
-            if (_base == 10) {
+            if (BASE == 10) {
                 if (_ilexeme[0] == '0') {
                     n = strtoul(_ilexeme, &notnumber, 0);
                 } else {
                     n = strtol(_ilexeme, &notnumber, 0);
                 }
             } else {
-                n = strtoul(_ilexeme, &notnumber, _base);
+                n = strtoul(_ilexeme, &notnumber, BASE);
             }
             if (notnumber == _ilexeme) {
                 printf("? ");
@@ -430,7 +407,7 @@ int outer(void) {
         }
         tokenp++;
     }
-    return _running;
+    return RUNNING;
 }
 
 void mass(void) {
@@ -438,7 +415,7 @@ void mass(void) {
 }
 
 void bye(void) {
-    _running = 0;
+    RUNNING = 0;
 }
 
 void u4_create(void) {
@@ -447,23 +424,83 @@ void u4_create(void) {
     if (_jlexeme[0]) create(_jlexeme);
 }
 
+void u4_tick(void) {
+    _jlexeme[0] = '\0';
+    token(_jlexeme);
+    if (_jlexeme[0]) push(tick(_jlexeme));
+}
+
+void u4_execute(void) {
+    int xt = pop();
+    execute(xt);
+}
+
+void fetch(void) {
+    int addr = pop();
+    push(dict[addr].data);
+}
+
+void store(void) {
+    int addr = pop();
+    int value = pop();
+    dict[addr].data = value;
+}
+
+typedef struct {
+    char *name;
+    void (*code)(void);
+} bulk_t;
+
+bulk_t vocab[] = {
+    {"dolist", dolist},
+    {".", dot},
+    {"branch", branch},
+    {"branchnotzero", branchnotzero},
+    {"pushlit", pushlit},
+    {"words", words},
+    {"dump", dump},
+    {"bye", bye},
+    {"create", u4_create},
+    {"'", u4_tick},
+    {"execute", u4_execute},
+    {"@", fetch},
+    {"!", store},
+    {NULL,      NULL}
+};
+
+void makecode(char *name, void (*code)(void)) {
+    reg(code);
+    create(name);
+    comma((int)code);
+}
+
+void makevar(char *name, int n) {
+    create(name);
+    comma((int)pushlit);
+    comma(n);
+}
+
+void u4_init(void) {
+    int i;
+    bulk_t *bulk = vocab;
+
+    reg(nil);
+
+    for (i=here; i<DMAX; i++) {
+        dict[i].data = NEXT;
+    }
+
+    makevar("base", 0);
+    makevar("running", 1);
+
+    while (bulk->name != NULL) {
+        //printf("name:%s\n", bulk->name);
+        makecode(bulk->name, bulk->code);
+        bulk++;
+    }
+}
+
 void u4_start(void) {
-    REG(words);
-    create("words");
-    comma((int)&words);
-    
-    REG(dump);
-    create("dump");
-    comma((int)&dump);
-
-    REG(bye);
-    create("bye");
-    comma((int)&bye);
-
-    REG(u4_create);
-    create("create");
-    comma((int)&u4_create);
-
     if (isatty(STDIN_FILENO)) {
         while (1) {
             if (input() < 0) break;
@@ -477,8 +514,10 @@ void u4_start(void) {
 // OUTER STUFF } --------
 
 int main(int argc, char *argv[]) {
-    inner_init();
-    //inner_test();
+    u4_init();
+#ifdef INNER_TEST
+    inner_test();
+#endif
     u4_start();
     return 0;
 }

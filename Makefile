@@ -15,6 +15,9 @@ u3: u3.c
 u4: u4.c
 	gcc -m32 -g -o u4 u4.c
 
+u4-test: u4.c
+	gcc -DINNER_TEST -m32 -g -o u4-test u4.c
+
 clean:
 	rm -f u[01234]
 	rm -rf *.dSYM
