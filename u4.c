@@ -20,12 +20,9 @@ I stole this ASCII art while watching CoolerVoid compile raptor_waf...
 
 */
 
-// INNER STUFF { --------
-#define SMAX (1000)
-#define RMAX (1000)
-#define NMAX (1000)
-#define DMAX (1000)
+#include "u4.h"
 
+// INNER STUFF { --------
 int stack[SMAX];
 int rstack[RMAX];
 int sp = 0;
@@ -61,9 +58,6 @@ void u4_rpop(void) {
     push(rpop());
 }
 
-#define NEXT (-1)
-#define NONE (-1)
-
 typedef union {
     int data;
     void (*code)(void);
@@ -71,7 +65,7 @@ typedef union {
     int name;
 } cell_t;
 
-void nil(void);
+void cold(void);
 
 #define BASE_OFF (0)
 #define LOOP_OFF (1)
@@ -80,6 +74,13 @@ void nil(void);
 #define NAME_OFF (4)
 #define VMIP_OFF (5)
 #define COLS_OFF (6)
+// first dictionary entry
+#define LINK0 (7)
+#define NAME0 (8)
+#define CODE0 (9)
+#define FREE0 (10)
+#define TEXT0 "cold"
+#define TLEN0 sizeof(TEXT0)
 
 #define BASE (dict[BASE_OFF].data)
 #define LOOP (dict[LOOP_OFF].data)
@@ -90,30 +91,22 @@ void nil(void);
 #define COLS (dict[COLS_OFF].data)
 
 cell_t dict[DMAX] = {
-    {.data = 10},      // 0 BASE variable
-    {.data = 1},       // 1 LOOP running variable
-    {.data = 10},      // 2 HERE free dictionary index ----------+
-    {.data = 7},       // 3 HEAD index to head of dictionary --+ |
-    {.data = 4},       // 4 NAME free string index --+         | |
-    {.data = 0},       // 5 VMIP instruction pointer |         | |
-    {.data = 80},      // 6 COLS instruction pointer |         | |
-    // first "real" dictionary entry (hard-coded)    |         | |
-    {.link = NONE},    // 7 <------------------------|---------+ |
-    {.name =  0},      // 8 ---------+               |           |
-    {.code = nil},     // 9* --------|--+            |           |
-};                     // 10 free <--|--|------------|-----------+
-//                                   |  |            |
-char name[NMAX] = //                 |  |            |
-//                                   |  |            |
-//   +-------------------------------+  |            |
-//   |                                  |            |
-//   v                                  |            |
-//   0123                               |            |
-    "nil\0"; //                         |            |
-//   4  free <--------------------------|------------+
-//                                      |
-void nil(void) { // <-------------------+
-    printf("nil\n");
+    [BASE_OFF] = {.data = 10},    // 0 BASE variable
+    [LOOP_OFF] = {.data = 1},     // 1 LOOP running variable
+    [HERE_OFF] = {.data = FREE0}, // 2 HERE free dictionary index -----------+
+    [HEAD_OFF] = {.data = LINK0}, // 3 HEAD index to head of dictionary --+  |
+    [NAME_OFF] = {.data = TLEN0}, // 4 NAME free string index             |  |
+    [VMIP_OFF] = {.data = 0},     // 5 VMIP instruction pointer           |  |
+    [COLS_OFF] = {.data = 80},    // 6 COLS instruction pointer           |  |
+    // first "real" dictionary entry (hard-coded)                         |  |
+    [LINK0] = {.link = NONE},     // 7 <----------------------------------+  |
+    [NAME0] = {.name =  0},       // 8 ------------+                         |
+    [CODE0] = {.code = cold},     // 9 ---------+  |                         |
+};                                // 10 free <--|--|-------------------------+
+char name[NMAX] = TEXT0; // <-------------------|--+
+//                                              |
+void cold(void) { // <--------------------------+
+    printf("cold\n");
 }
 
 char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -293,106 +286,6 @@ int tick(char *name) {
     return e;
 }
 
-//#ifdef INNER_TEST
-
-void one(void) {
-    printf("I am one!\n");
-}
-
-void two(void) {
-    printf("I am two!\n");
-}
-
-void three(void) {
-    printf("I am three!\n");
-}
-
-void four(void) {
-    printf("I am four!\n");
-}
-
-void inner_test(void) {
-    static int first = 1;
-   
-    if (first) {
-        first = 0;
-
-        reg(one);
-        reg(two);
-        reg(three);
-        reg(four);
-
-        create("one");
-        comma((int)one);
-        
-        create("two");
-        comma((int)two);
-        
-        create("three");
-        comma((int)three);
-        
-        create("four");
-        comma((int)four);
-        
-        create("testit");
-        comma((int)docolon);
-        comma(tick("one"));
-        comma(tick("pushlit"));
-        comma(999);
-        comma(tick("."));
-        comma(tick("pushlit"));
-        comma(666);
-        comma(tick("."));
-        comma(NEXT);
-
-        create("2nd-level");
-        comma((int)docolon);
-        comma(tick("two"));
-        comma(tick("testit"));
-        comma(NEXT);
-
-        create("3rd-level");
-        comma((int)docolon);
-        comma(tick("three"));
-        comma(tick("2nd-level"));
-        comma(NEXT);
-
-        create("branchtest");
-        comma((int)docolon);
-        comma(tick("?branch"));
-        comma(3);
-        comma(tick("four"));
-        comma(tick("branch"));
-        comma(1);
-        comma(tick("three"));
-        comma(NEXT);
-    }
-
-    printf("\n* test 001 *\n");
-    execute(tick("one"));
-
-    printf("\n* test 002 *\n");
-    execute(tick("two"));
-
-    printf("\n* test 003 *\n");
-    execute(tick("testit"));
-
-    printf("\n* test 004 *\n");
-    execute(tick("2nd-level"));
-
-    printf("\n* test 005 *\n");
-    execute(tick("3rd-level"));
-
-    push(0);
-    printf("\n* test 006 *\n");
-    execute(tick("branchtest"));
-
-    push(1);
-    printf("\n* test 006 *\n");
-    execute(tick("branchtest"));
-}
-
-//#endif
 
 // INNER STUFF } --------
 
@@ -645,11 +538,6 @@ void binary(void) {
     BASE = 2;
 }
 
-typedef struct {
-    char *name;
-    void (*code)(void);
-} bulk_t;
-
 bulk_t vocab[] = {
     {">r",       u4_rpush},
     {"r>",       u4_rpop},
@@ -699,7 +587,7 @@ void u4_init(void) {
     int i;
     bulk_t *bulk = vocab;
 
-    reg(nil);
+    reg(cold);
 
     for (i=HERE; i<DMAX; i++) {
         dict[i].data = NEXT;
@@ -729,8 +617,6 @@ void u4_init(void) {
     comma(tick("store"));
     comma(NEXT);
 #endif
-
-    makecode("test", inner_test);
 }
 
 void u4_start(void) {
@@ -746,8 +632,10 @@ void u4_start(void) {
 
 // OUTER STUFF } --------
 
+#ifdef U4_MAIN
 int main(int argc, char *argv[]) {
     u4_init();
     u4_start();
     return 0;
 }
+#endif
