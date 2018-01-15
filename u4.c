@@ -242,13 +242,17 @@ void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
     }
 }
 
+void show_header(int c) {
+    printf("LINK [%d] %d\n",   c+0, dict[c+0].link);
+    printf("NAME [%d] [%d]%s\n", c+1, dict[c+1].name, &name[dict[c+1].name]);
+    printf("CODE [%d] %d\n",   c+2, dict[c+2].data);
+}
+
 int walk_dump(int c, int *e, void *v) {
     int *pc = (int *)v;
     int i;
     printf("\n");
-    printf("LINK [%d] %d\n",   c+0, dict[c+0].link);
-    printf("NAME [%d] \"%s\"\n", c+1, &name[dict[c+1].name]);
-    printf("CODE [%d] %d\n",   c+2, dict[c+2].data);
+    show_header(c);
     for (i=c+3; i<*pc; i++) {
         printf("     [%d] %d\n", i, dict[i].data);
     }
@@ -452,6 +456,47 @@ void u4_create(void) {
     if (token_jlexeme[0]) create(token_jlexeme);
 }
 
+#if 0
+int walk_forget(int c, int *e, void *v) {
+    if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
+        show_header(c);
+        return NONE;
+    }
+    return 0;
+}
+void forget(char *name) {
+    walk(HEAD, walk_forget, NULL, name);
+}
+void u4_forget(void) {
+    token_jlexeme[0] = '\0';
+    token(token_jlexeme);
+    if (token_jlexeme[0]) forget(token_jlexeme);
+}
+#endif
+
+int see_arg = 0;
+int walk_see(int c, int *e, void *v) {
+    if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
+        int i;
+        show_header(c);
+        for (i=c+3; i<see_arg; i++) {
+            printf("     [%d] %d\n", i, dict[i].data);
+        }
+        return NONE;
+    }
+    see_arg = c;
+    return 0;
+}
+void see(char *name) {
+    see_arg = HERE;
+    walk(HEAD, walk_see, NULL, name);
+}
+void u4_see(void) {
+    token_jlexeme[0] = '\0';
+    token(token_jlexeme);
+    if (token_jlexeme[0]) see(token_jlexeme);
+}
+
 int outer(void) {
     int addr;
     while (LOOP) {
@@ -627,6 +672,8 @@ bulk_t vocab[] = {
     {"decimal", decimal},
     {"hex",     hex},
     {"binary",  binary},
+    //{"forget",  u4_forget},
+    {"see",     u4_see},
     {NULL,      NULL}
 };
 
