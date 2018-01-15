@@ -64,50 +64,58 @@ void u4_rpop(void) {
 #define NEXT (-1)
 #define NONE (-1)
 
-int ip = 0;
-
 typedef union {
     int data;
     void (*code)(void);
-    int prev;
+    int link;
     int name;
 } cell_t;
 
-void nil(void) {
-    // printf("nil\n");
-}
+void nil(void);
 
 #define BASE_OFF (0)
 #define LOOP_OFF (1)
 #define HERE_OFF (2)
 #define HEAD_OFF (3)
 #define NAME_OFF (4)
+#define VMIP_OFF (5)
+//
+#define WIDE_OFF (6)
 
 #define BASE (dict[BASE_OFF].data)
 #define LOOP (dict[LOOP_OFF].data)
 #define HERE (dict[HERE_OFF].data)
 #define HEAD (dict[HEAD_OFF].data)
 #define NAME (dict[NAME_OFF].data)
+#define VMIP (dict[VMIP_OFF].data)
+//
+#define WIDE (dict[WIDE_OFF].data)
 
 cell_t dict[DMAX] = {
     {.data = 10},      // 0 BASE variable
     {.data = 1},       // 1 LOOP running variable
-    {.data = 8},       // 2 HERE free dictionary index ------------+
-    {.data = 5},       // 3 HEAD index to head of dictionary ----+ |
-    {.data = 4},       // 4 NAME free string index --+           | |
-    // first "real" dictionary entry (hard-coded)    |           | |
-    {.prev = NONE},    // 5 <------------------------|-----------+ |
-    {.name =  0},      // 6                          |             |
-    {.code = nil},     // 7*                         |             |
-};                     // 8  free <------------------|-------------+
-int here = 8;          //                            |
-//                                                   |
-char name[NMAX] = //                                 |
-//   0123                                            |
-    "nil\0";      //                                 |
-//   4  free <---------------------------------------+
-   //              |
-int nptr = 4; // --+
+    {.data = 9},       // 2 HERE free dictionary index ----------+
+    {.data = 6},       // 3 HEAD index to head of dictionary --+ |
+    {.data = 4},       // 4 NAME free string index --+         | |
+    {.data = 0},       // 5 VMIP instruction pointer |         | |
+    // first "real" dictionary entry (hard-coded)    |         | |
+    {.link = NONE},    // 6 <------------------------|---------+ |
+    {.name =  0},      // 7 ---------+               |           |
+    {.code = nil},     // 8* --------|--+            |           |
+};                     // 9 free <---|--|------------|-----------+
+//                                   |  |            |
+char name[NMAX] = //                 |  |            |
+//                                   |  |            |
+//   +-------------------------------+  |            |
+//   |                                  |            |
+//   v                                  |            |
+//   0123                               |            |
+    "nil\0"; //                         |            |
+//   4  free <--------------------------|------------+
+//                                      |
+void nil(void) { // <-------------------+
+    printf("nil\n");
+}
 
 char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -140,23 +148,23 @@ void u4_dot(void) {
 }
 
 void pushlit(void) {
-    ip++;
-    push(dict[ip].data);
+    VMIP++;
+    push(dict[VMIP].data);
 }
 
 void branch(void) {
-    ip++;
-    ip += dict[ip].data;
+    VMIP++;
+    VMIP += dict[VMIP].data;
 }
 
 void branchnotzero(void) {
-    ip++;
-    int addr = dict[ip].data;
+    VMIP++;
+    int addr = dict[VMIP].data;
     if (pop() == 0) {
         printf("zero\n");
     } else {
         printf("not zero\n");
-        ip += addr;
+        VMIP += addr;
     }
 }
 
@@ -178,8 +186,8 @@ void execute(int xt) {
         printf("invalid xt\n");
         return;
     }
-    ip = xt;
-    void (*code)(void) = dict[ip].code;
+    VMIP = xt;
+    void (*code)(void) = dict[VMIP].code;
     if (valid(code)) {
         code();
     } else printf("invalid code\n");
@@ -191,33 +199,33 @@ void u4_execute(void) {
 }
 
 void dolist(void) {
-    rpush(ip);
+    rpush(VMIP);
     while (1) {
-        ip++;
-        if (dict[ip].data == NEXT) break;
+        VMIP++;
+        if (dict[VMIP].data == NEXT) break;
 #if 1
-        dict[dict[ip].data].code();
+        dict[dict[VMIP].data].code();
 #else
-        execute(ip);
+        execute(VMIP);
 #endif
     }
-    ip = rpop();
+    VMIP = rpop();
 }
 
 void create(char *s) {
     int n = strlen(s);
-    strcpy(&name[nptr], s);
-    dict[here].prev = HEAD;
-    HEAD = here;
-    here++;
-    dict[here].name = nptr;
-    here++;
-    nptr += n;
-    nptr++;
+    strcpy(&name[NAME], s);
+    dict[HERE].link = HEAD;
+    HEAD = HERE;
+    HERE++;
+    dict[HERE].name = NAME;
+    HERE++;
+    NAME += n;
+    NAME++;
 }
 
 void comma(int c) {
-    dict[here++].data = c;
+    dict[HERE++].data = c;
 }
 
 void u4_comma(void) {
@@ -229,8 +237,8 @@ void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
     while (1) {
         int n = fn(c, e, v);
         if (n < 0) break;
-        if (dict[c].prev < 0) break;
-        c = dict[c].prev;
+        if (dict[c].link < 0) break;
+        c = dict[c].link;
     }
 }
 
@@ -238,7 +246,7 @@ int walk_dump(int c, int *e, void *v) {
     int *pc = (int *)v;
     int i;
     printf("\n");
-    printf("PREV [%d] %d\n",   c+0, dict[c+0].prev);
+    printf("LINK [%d] %d\n",   c+0, dict[c+0].link);
     printf("NAME [%d] \"%s\"\n", c+1, &name[dict[c+1].name]);
     printf("CODE [%d] %d\n",   c+2, dict[c+2].data);
     for (i=c+3; i<*pc; i++) {
@@ -248,7 +256,7 @@ int walk_dump(int c, int *e, void *v) {
     return 0;
 }
 void dump(void) {
-    int lc = here;
+    int lc = HERE;
     walk(HEAD, walk_dump, NULL, &lc);
     printf("\n");
 }
@@ -275,7 +283,7 @@ int tick(char *name) {
     return e;
 }
 
-#ifdef INNER_TEST
+//#ifdef INNER_TEST
 
 void one(void) {
     printf("I am one!\n");
@@ -294,63 +302,61 @@ void four(void) {
 }
 
 void inner_test(void) {
-    reg(one);
-    reg(two);
-    reg(three);
-    reg(four);
+    static int first = 1;
+   
+    if (first) {
+        first = 0;
 
-    create("one");
-    comma((int)one);
-    
-    create("two");
-    comma((int)two);
-    
-    create("three");
-    comma((int)three);
-    
-    create("four");
-    comma((int)four);
-    
-    create("testit");
-    comma((int)dolist);
-    comma(tick("one"));
-    comma(tick("branch"));
-    comma(0);
-    //comma(2);
-    comma(tick("pushlit"));
-    comma(999);
-    comma(tick("."));
-    comma(tick("pushlit"));
-    comma(666);
-    comma(tick("."));
-    comma(NEXT);
+        reg(one);
+        reg(two);
+        reg(three);
+        reg(four);
 
-    create("2nd-level");
-    comma((int)dolist);
-    comma(tick("two"));
-    comma(tick("testit"));
-    comma(NEXT);
+        create("one");
+        comma((int)one);
+        
+        create("two");
+        comma((int)two);
+        
+        create("three");
+        comma((int)three);
+        
+        create("four");
+        comma((int)four);
+        
+        create("testit");
+        comma((int)dolist);
+        comma(tick("one"));
+        comma(tick("pushlit"));
+        comma(999);
+        comma(tick("."));
+        comma(tick("pushlit"));
+        comma(666);
+        comma(tick("."));
+        comma(NEXT);
 
-    create("3rd-level");
-    comma((int)dolist);
-    comma(tick("three"));
-    comma(tick("2nd-level"));
-    comma(NEXT);
+        create("2nd-level");
+        comma((int)dolist);
+        comma(tick("two"));
+        comma(tick("testit"));
+        comma(NEXT);
 
-    create("branchtest");
-    comma((int)dolist);
-    comma(tick("pushlit"));
-    comma(1);
-    comma(tick("branchnotzero"));
-    comma(3);
-    comma(tick("four"));
-    comma(tick("branch"));
-    comma(1);
-    comma(tick("three"));
-    comma(NEXT);
+        create("3rd-level");
+        comma((int)dolist);
+        comma(tick("three"));
+        comma(tick("2nd-level"));
+        comma(NEXT);
 
-    words();
-    dump();
+        create("branchtest");
+        comma((int)dolist);
+        comma(tick("jnz"));
+        comma(3);
+        comma(tick("four"));
+        comma(tick("jmp"));
+        comma(1);
+        comma(tick("three"));
+        comma(NEXT);
+    }
 
     printf("\n* test 001 *\n");
     execute(tick("one"));
@@ -367,11 +373,16 @@ void inner_test(void) {
     printf("\n* test 005 *\n");
     execute(tick("3rd-level"));
 
+    push(0);
+    printf("\n* test 006 *\n");
+    execute(tick("branchtest"));
+
+    push(1);
     printf("\n* test 006 *\n");
     execute(tick("branchtest"));
 }
 
-#endif
+//#endif
 
 // INNER STUFF } --------
 
@@ -402,15 +413,14 @@ unsigned char islexeme(char c) {
     return 1;
 }
 
-char _lexeme[TMAX+1];
-char _ilexeme[TMAX+1];
-char _jlexeme[TMAX+1];
+char token_lexeme[TMAX+1];
+char token_ilexeme[TMAX+1];
+char token_jlexeme[TMAX+1];
 
 /* todo make token accept a buffer addr and len */
 int tokenp = 0;
 void token(char *lexeme) {
     unsigned char collected = 0;
-    //printf("->token(%p)\n", lexeme);
     if (tokenb[tokenp] == '\0') {
         tokenp = -1;
         return;
@@ -437,37 +447,37 @@ void token(char *lexeme) {
 }
 
 void u4_create(void) {
-    _jlexeme[0] = '\0';
-    token(_jlexeme);
-    if (_jlexeme[0]) create(_jlexeme);
+    token_jlexeme[0] = '\0';
+    token(token_jlexeme);
+    if (token_jlexeme[0]) create(token_jlexeme);
 }
 
 int outer(void) {
     int addr;
     while (LOOP) {
-        token(_ilexeme);
+        token(token_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
             //printf("invalid tokenp:%d\n", tokenp);
             tokenp = 0;
             break;
         }
         // try to find lexeme in dictionary
-        addr = tick(_ilexeme);
-        //printf("_ilexeme<%s>/%d\n", _ilexeme, addr);
+        addr = tick(token_ilexeme);
+        //printf("_ilexeme<%s>/%d\n", token_ilexeme, addr);
         if (addr < 0) {
             // not found, try to interpret as a number
             char *notnumber;
             int n;
             if (BASE == 10) {
-                if (_ilexeme[0] == '0') {
-                    n = strtoul(_ilexeme, &notnumber, 0);
+                if (token_ilexeme[0] == '0') {
+                    n = strtoul(token_ilexeme, &notnumber, 0);
                 } else {
-                    n = strtol(_ilexeme, &notnumber, 0);
+                    n = strtol(token_ilexeme, &notnumber, 0);
                 }
             } else {
-                n = strtoul(_ilexeme, &notnumber, BASE);
+                n = strtoul(token_ilexeme, &notnumber, BASE);
             }
-            if (notnumber == _ilexeme) {
+            if (notnumber == token_ilexeme) {
                 printf("? ");
             } else if (n == UINT32_MAX && (errno == ERANGE)) {
                 //printf("? out of range ");
@@ -494,9 +504,9 @@ void bye(void) {
 }
 
 void u4_tick(void) {
-    _jlexeme[0] = '\0';
-    token(_jlexeme);
-    if (_jlexeme[0]) push(tick(_jlexeme));
+    token_jlexeme[0] = '\0';
+    token(token_jlexeme);
+    if (token_jlexeme[0]) push(tick(token_jlexeme));
 }
 
 void fetch(void) {
@@ -572,36 +582,51 @@ void dots(void) {
     }
 }
 
+void decimal(void) {
+    BASE = 10;
+}
+
+void hex(void) {
+    BASE = 16;
+}
+
+void binary(void) {
+    BASE = 2;
+}
+
 typedef struct {
     char *name;
     void (*code)(void);
 } bulk_t;
 
 bulk_t vocab[] = {
-    {">r", u4_rpush},
-    {"r>", u4_rpop},
-    {"bye", bye},
+    {">r",      u4_rpush},
+    {"r>",      u4_rpop},
+    {"bye",     bye},
     {"pushlit", pushlit},
-    {"branch", branch},
-    {"branchnotzero", branchnotzero},
+    {"jmp",     branch},
+    {"jnz",     branchnotzero},
     {"execute", u4_execute},
-    {"dolist", dolist},
-    {"create", u4_create},
-    {",", u4_comma},
-    {".", u4_dot},
-    {"words", words},
-    {"dump", dump},
-    {"'", u4_tick},
-    {"@", fetch},
-    {"!", store},
-    {"w@", wfetch},
-    {"w!", wstore},
-    {"+", add},
-    {"-", subtract},
-    {"*", multiply},
-    {"/", divide},
-    {"%", modulus},
-    {".s", dots},
+    {"dolist",  dolist},
+    {"create",  u4_create},
+    {",",       u4_comma},
+    {".",       u4_dot},
+    {"words",   words},
+    {"dump",    dump},
+    {"'",       u4_tick},
+    {"@",       fetch},
+    {"!",       store},
+    {"w@",      wfetch},
+    {"w!",      wstore},
+    {"+",       add},
+    {"-",       subtract},
+    {"*",       multiply},
+    {"/",       divide},
+    {"%",       modulus},
+    {".s",      dots},
+    {"decimal", decimal},
+    {"hex",     hex},
+    {"binary",  binary},
     {NULL,      NULL}
 };
 
@@ -623,20 +648,24 @@ void u4_init(void) {
 
     reg(nil);
 
-    for (i=here; i<DMAX; i++) {
+    for (i=HERE; i<DMAX; i++) {
         dict[i].data = NEXT;
     }
 
     makevar("base",    BASE_OFF);
     makevar("running", LOOP_OFF);
     makevar("here",    HERE_OFF);
+    makevar("head",    HEAD_OFF);
     makevar("name",    NAME_OFF);
+    makevar("ip",      VMIP_OFF);
 
     while (bulk->name != NULL) {
         makecode(bulk->name, bulk->code);
         bulk++;
     }
 
+#if 0
+    // example
     create("decimal");
     comma((int)dolist);
     comma(tick("pushlit"));
@@ -645,7 +674,9 @@ void u4_init(void) {
     comma(BASE_OFF);
     comma(tick("store"));
     comma(NEXT);
+#endif
 
+    makecode("test", inner_test);
 }
 
 void u4_start(void) {
@@ -663,9 +694,6 @@ void u4_start(void) {
 
 int main(int argc, char *argv[]) {
     u4_init();
-#ifdef INNER_TEST
-    inner_test();
-#endif
     u4_start();
     return 0;
 }
