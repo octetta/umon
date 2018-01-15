@@ -5,10 +5,10 @@
 #include <unistd.h>
 
 // INNER STUFF { --------
-#define SMAX 1000
-#define RMAX 1000
-#define NMAX 1000
-#define DMAX 1000
+#define SMAX (1000)
+#define RMAX (1000)
+#define NMAX (1000)
+#define DMAX (1000)
 
 int stack[SMAX];
 int rstack[RMAX];
@@ -59,20 +59,57 @@ void nil(void) {
     // printf("nil\n");
 }
 
+#define BASE_OFF (0)
+#define LOOP_OFF (1)
+#define HERE_OFF (2)
+#define NAME_OFF (3)
+
+#define BASE (dict[BASE_OFF].data)
+#define LOOP (dict[LOOP_OFF].data)
+#define HERE (dict[HERE_OFF].data)
+#define NAME (dict[NAME_OFF].data)
 
 cell_t dict[DMAX] = {
     {.data = 10},      // 0 base holder
     {.data = 1},       // 1 running holder
-    {.prev = -1},      // 2 <------+
-    {.name =  0},      // 3        |
-    {.code = nil},     // 4*       |
-};                     // 5  free  |
+    {.data = 6},       // 2 'here' free dictionary index
+    {.data = 4},       // 3 'name' free string index
+    {.prev = -1},      // 4 <------+
+    {.name =  0},      // 5        |
+    {.code = nil},     // 6*       |
+};                     // 7  free  |
                        //          |
-int prev = 2; // ------------------+
-int here = 5;
+int prev = 4; // ------------------+
+int here = 7;
 
-void dot(void) {
-    printf("%d\n", pop());
+char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+void dot(int np) {
+    unsigned int number[64];
+    unsigned int n = (unsigned int)np;
+    int index = 0;
+    if (np < 0 && BASE == 10) {
+        putchar('-');
+        n = -n;
+    }
+    if (!n) {
+        putchar('0');
+    } else {
+        while (n) {
+            number[index] = n % BASE;
+            n /= BASE;
+            index++;
+        }
+        index--;
+        for(; index >= 0; index--) {
+            putchar(digits[number[index]]);
+        }
+    }
+    putchar(' ');
+}
+
+void u4_dot(void) {
+    dot(pop());
 }
 
 void pushlit(void) {
@@ -360,16 +397,9 @@ void token(char *lexeme) {
     return;
 }
 
-#if 0
-int _base = 10;
-int _running = 1;
-#endif
-#define BASE (dict[0].data)
-#define RUNNING (dict[1].data)
-
 int outer(void) {
     int addr;
-    while (RUNNING) {
+    while (LOOP) {
         token(_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
             //printf("invalid tokenp:%d\n", tokenp);
@@ -407,7 +437,7 @@ int outer(void) {
         }
         tokenp++;
     }
-    return RUNNING;
+    return LOOP;
 }
 
 void mass(void) {
@@ -415,7 +445,7 @@ void mass(void) {
 }
 
 void bye(void) {
-    RUNNING = 0;
+    LOOP = 0;
 }
 
 void u4_create(void) {
@@ -453,7 +483,7 @@ typedef struct {
 
 bulk_t vocab[] = {
     {"dolist", dolist},
-    {".", dot},
+    {".", u4_dot},
     {"branch", branch},
     {"branchnotzero", branchnotzero},
     {"pushlit", pushlit},
@@ -490,8 +520,10 @@ void u4_init(void) {
         dict[i].data = NEXT;
     }
 
-    makevar("base", 0);
-    makevar("running", 1);
+    makevar("base",    BASE_OFF);
+    makevar("running", LOOP_OFF);
+    makevar("here",    HERE_OFF);
+    makevar("name",    NAME_OFF);
 
     while (bulk->name != NULL) {
         //printf("name:%s\n", bulk->name);
