@@ -79,8 +79,7 @@ void nil(void);
 #define HEAD_OFF (3)
 #define NAME_OFF (4)
 #define VMIP_OFF (5)
-//
-#define WIDE_OFF (6)
+#define COLS_OFF (6)
 
 #define BASE (dict[BASE_OFF].data)
 #define LOOP (dict[LOOP_OFF].data)
@@ -88,21 +87,21 @@ void nil(void);
 #define HEAD (dict[HEAD_OFF].data)
 #define NAME (dict[NAME_OFF].data)
 #define VMIP (dict[VMIP_OFF].data)
-//
-#define WIDE (dict[WIDE_OFF].data)
+#define COLS (dict[COLS_OFF].data)
 
 cell_t dict[DMAX] = {
     {.data = 10},      // 0 BASE variable
     {.data = 1},       // 1 LOOP running variable
-    {.data = 9},       // 2 HERE free dictionary index ----------+
-    {.data = 6},       // 3 HEAD index to head of dictionary --+ |
+    {.data = 10},      // 2 HERE free dictionary index ----------+
+    {.data = 7},       // 3 HEAD index to head of dictionary --+ |
     {.data = 4},       // 4 NAME free string index --+         | |
     {.data = 0},       // 5 VMIP instruction pointer |         | |
+    {.data = 80},      // 6 COLS instruction pointer |         | |
     // first "real" dictionary entry (hard-coded)    |         | |
-    {.link = NONE},    // 6 <------------------------|---------+ |
-    {.name =  0},      // 7 ---------+               |           |
-    {.code = nil},     // 8* --------|--+            |           |
-};                     // 9 free <---|--|------------|-----------+
+    {.link = NONE},    // 7 <------------------------|---------+ |
+    {.name =  0},      // 8 ---------+               |           |
+    {.code = nil},     // 9* --------|--+            |           |
+};                     // 10 free <--|--|------------|-----------+
 //                                   |  |            |
 char name[NMAX] = //                 |  |            |
 //                                   |  |            |
@@ -157,13 +156,13 @@ void branch(void) {
     VMIP += dict[VMIP].data;
 }
 
-void branchnotzero(void) {
+void branchzero(void) {
     VMIP++;
     int addr = dict[VMIP].data;
-    if (pop() == 0) {
-        printf("zero\n");
+    if (pop()) {
+        //printf("not zero\n");
     } else {
-        printf("not zero\n");
+        //printf("zero\n");
         VMIP += addr;
     }
 }
@@ -198,7 +197,7 @@ void u4_execute(void) {
     execute(xt);
 }
 
-void dolist(void) {
+void docolon(void) {
     rpush(VMIP);
     while (1) {
         VMIP++;
@@ -265,13 +264,20 @@ void dump(void) {
     printf("\n");
 }
 
+int words_arg = 0;
 int walk_words(int c, int *e, void *v) {
+    int n = strlen(&name[dict[c+1].name]);
+    if (n + words_arg > COLS) {
+        printf("\n");
+        words_arg = 0;
+    } words_arg += n;
     printf("%s ", &name[dict[c+1].name]);
     return 0;
 }
 void words(void) {
+    words_arg = 0;
     walk(HEAD, walk_words, NULL, NULL);
-    printf("\n");
+    if (words_arg) printf("\n");
 }
 
 int walk_tick(int c, int *e, void *v) {
@@ -329,7 +335,7 @@ void inner_test(void) {
         comma((int)four);
         
         create("testit");
-        comma((int)dolist);
+        comma((int)docolon);
         comma(tick("one"));
         comma(tick("pushlit"));
         comma(999);
@@ -340,23 +346,23 @@ void inner_test(void) {
         comma(NEXT);
 
         create("2nd-level");
-        comma((int)dolist);
+        comma((int)docolon);
         comma(tick("two"));
         comma(tick("testit"));
         comma(NEXT);
 
         create("3rd-level");
-        comma((int)dolist);
+        comma((int)docolon);
         comma(tick("three"));
         comma(tick("2nd-level"));
         comma(NEXT);
 
         create("branchtest");
-        comma((int)dolist);
-        comma(tick("jnz"));
+        comma((int)docolon);
+        comma(tick("?branch"));
         comma(3);
         comma(tick("four"));
-        comma(tick("jmp"));
+        comma(tick("branch"));
         comma(1);
         comma(tick("three"));
         comma(NEXT);
@@ -645,36 +651,36 @@ typedef struct {
 } bulk_t;
 
 bulk_t vocab[] = {
-    {">r",      u4_rpush},
-    {"r>",      u4_rpop},
-    {"bye",     bye},
-    {"pushlit", pushlit},
-    {"jmp",     branch},
-    {"jnz",     branchnotzero},
-    {"execute", u4_execute},
-    {"dolist",  dolist},
-    {"create",  u4_create},
-    {",",       u4_comma},
-    {".",       u4_dot},
-    {"words",   words},
-    {"dump",    dump},
-    {"'",       u4_tick},
-    {"@",       fetch},
-    {"!",       store},
-    {"w@",      wfetch},
-    {"w!",      wstore},
-    {"+",       add},
-    {"-",       subtract},
-    {"*",       multiply},
-    {"/",       divide},
-    {"%",       modulus},
-    {".s",      dots},
-    {"decimal", decimal},
-    {"hex",     hex},
-    {"binary",  binary},
-    //{"forget",  u4_forget},
-    {"see",     u4_see},
-    {NULL,      NULL}
+    {">r",       u4_rpush},
+    {"r>",       u4_rpop},
+    {"bye",      bye},
+    {"pushlit",  pushlit},
+    {"branch",   branch},
+    {"?branch",  branchzero},
+    {"execute",  u4_execute},
+    {"docolon",  docolon},
+    {"create",   u4_create},
+    {",",        u4_comma},
+    {".",        u4_dot},
+    {"words",    words},
+    {"dump",     dump},
+    {"'",        u4_tick},
+    {"@",        fetch},
+    {"!",        store},
+    {"w@",       wfetch},
+    {"w!",       wstore},
+    {"+",        add},
+    {"-",        subtract},
+    {"*",        multiply},
+    {"/",        divide},
+    {"%",        modulus},
+    {".s",       dots},
+    {"decimal",  decimal},
+    {"hex",      hex},
+    {"binary",   binary},
+    //{"forget", u4_forget},
+    {"see",      u4_see},
+    {NULL,       NULL}
 };
 
 void makecode(char *name, void (*code)(void)) {
@@ -705,6 +711,7 @@ void u4_init(void) {
     makevar("head",    HEAD_OFF);
     makevar("name",    NAME_OFF);
     makevar("ip",      VMIP_OFF);
+    makevar("cols",    COLS_OFF);
 
     while (bulk->name != NULL) {
         makecode(bulk->name, bulk->code);
@@ -714,7 +721,7 @@ void u4_init(void) {
 #if 0
     // example
     create("decimal");
-    comma((int)dolist);
+    comma((int)docolon);
     comma(tick("pushlit"));
     comma(10);
     comma(tick("pushlit"));
