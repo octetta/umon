@@ -4,6 +4,22 @@
 #include <string.h>
 #include <unistd.h>
 
+/*
+
+s h a m e l e s s . . . 
+
+I stole this ASCII art while watching CoolerVoid compile raptor_waf...
+
+               boing         boing         boing
+ e-e           . - .         . - .         . - . 
+(\_/)\      ,'       `.   ,'       `.   ,'       `.
+ `-'\ `--._._,         . .           . .           .
+    '\( ,_.-'                                       
+       \                "             "             "
+       ^\'              .             .          compile!
+
+*/
+
 // INNER STUFF { --------
 #define SMAX (1000)
 #define RMAX (1000)
@@ -14,17 +30,6 @@ int stack[SMAX];
 int rstack[RMAX];
 int sp = 0;
 int rs = 0;
-
-void rpush(int n) {
-    if (rs < SMAX) rs++;
-    rstack[rs] = n;
-}
-
-int rpop(void) {
-    int n = rstack[rs];
-    if (rs >= 0) rs--;
-    return n;
-}
 
 void push(int n) {
     if (sp < SMAX) sp++;
@@ -37,16 +42,29 @@ int pop(void) {
     return n;
 }
 
+void rpush(int n) {
+    if (rs < SMAX) rs++;
+    rstack[rs] = n;
+}
+
+int rpop(void) {
+    int n = rstack[rs];
+    if (rs >= 0) rs--;
+    return n;
+}
+
+void u4_rpush(void) {
+    rpush(pop());
+}
+
+void u4_rpop(void) {
+    push(rpop());
+}
+
 #define NEXT (-1)
+#define NONE (-1)
 
 int ip = 0;
-
-char name[NMAX] = 
-   //0123
-    "nil\0";
-   //4  free <-----+
-   //              |
-int nptr = 4; // --+
 
 typedef union {
     int data;
@@ -62,25 +80,34 @@ void nil(void) {
 #define BASE_OFF (0)
 #define LOOP_OFF (1)
 #define HERE_OFF (2)
-#define NAME_OFF (3)
+#define HEAD_OFF (3)
+#define NAME_OFF (4)
 
 #define BASE (dict[BASE_OFF].data)
 #define LOOP (dict[LOOP_OFF].data)
 #define HERE (dict[HERE_OFF].data)
+#define HEAD (dict[HEAD_OFF].data)
 #define NAME (dict[NAME_OFF].data)
 
 cell_t dict[DMAX] = {
-    {.data = 10},      // 0 base holder
-    {.data = 1},       // 1 running holder
-    {.data = 6},       // 2 'here' free dictionary index
-    {.data = 4},       // 3 'name' free string index
-    {.prev = -1},      // 4 <------+
-    {.name =  0},      // 5        |
-    {.code = nil},     // 6*       |
-};                     // 7  free  |
-                       //          |
-int prev = 4; // ------------------+
-int here = 7;
+    {.data = 10},      // 0 BASE variable
+    {.data = 1},       // 1 LOOP running variable
+    {.data = 8},       // 2 HERE free dictionary index ------------+
+    {.data = 5},       // 3 HEAD index to head of dictionary ----+ |
+    {.data = 4},       // 4 NAME free string index --+           | |
+    // first "real" dictionary entry (hard-coded)    |           | |
+    {.prev = NONE},    // 5 <------------------------|-----------+ |
+    {.name =  0},      // 6                          |             |
+    {.code = nil},     // 7*                         |             |
+};                     // 8  free <------------------|-------------+
+int here = 8;          //                            |
+//                                                   |
+char name[NMAX] = //                                 |
+//   0123                                            |
+    "nil\0";      //                                 |
+//   4  free <---------------------------------------+
+   //              |
+int nptr = 4; // --+
 
 char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -158,6 +185,11 @@ void execute(int xt) {
     } else printf("invalid code\n");
 }
 
+void u4_execute(void) {
+    int xt = pop();
+    execute(xt);
+}
+
 void dolist(void) {
     rpush(ip);
     while (1) {
@@ -175,8 +207,8 @@ void dolist(void) {
 void create(char *s) {
     int n = strlen(s);
     strcpy(&name[nptr], s);
-    dict[here].prev = prev;
-    prev = here;
+    dict[here].prev = HEAD;
+    HEAD = here;
     here++;
     dict[here].name = nptr;
     here++;
@@ -186,6 +218,10 @@ void create(char *s) {
 
 void comma(int c) {
     dict[here++].data = c;
+}
+
+void u4_comma(void) {
+    comma(pop());
 }
 
 void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
@@ -213,7 +249,7 @@ int walk_dump(int c, int *e, void *v) {
 }
 void dump(void) {
     int lc = here;
-    walk(prev, walk_dump, NULL, &lc);
+    walk(HEAD, walk_dump, NULL, &lc);
     printf("\n");
 }
 
@@ -222,20 +258,20 @@ int walk_words(int c, int *e, void *v) {
     return 0;
 }
 void words(void) {
-    walk(prev, walk_words, NULL, NULL);
+    walk(HEAD, walk_words, NULL, NULL);
     printf("\n");
 }
 
 int walk_tick(int c, int *e, void *v) {
     if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
         *e = c+2;
-        return -1;
+        return NONE;
     }
     return 0;
 }
 int tick(char *name) {
-    int e = -1;
-    walk(prev, walk_tick, &e, name);
+    int e = NONE;
+    walk(HEAD, walk_tick, &e, name);
     return e;
 }
 
@@ -263,17 +299,20 @@ void inner_test(void) {
     reg(three);
     reg(four);
 
+    create("one");
+    comma((int)one);
+    
     create("two");
-    comma((int)&two);
+    comma((int)two);
     
     create("three");
-    comma((int)&three);
+    comma((int)three);
     
     create("four");
-    comma((int)&four);
+    comma((int)four);
     
     create("testit");
-    comma((int)&dolist);
+    comma((int)dolist);
     comma(tick("one"));
     comma(tick("branch"));
     comma(0);
@@ -287,19 +326,19 @@ void inner_test(void) {
     comma(NEXT);
 
     create("2nd-level");
-    comma((int)&dolist);
+    comma((int)dolist);
     comma(tick("two"));
     comma(tick("testit"));
     comma(NEXT);
 
     create("3rd-level");
-    comma((int)&dolist);
+    comma((int)dolist);
     comma(tick("three"));
     comma(tick("2nd-level"));
     comma(NEXT);
 
     create("branchtest");
-    comma((int)&dolist);
+    comma((int)dolist);
     comma(tick("pushlit"));
     comma(1);
     comma(tick("branchnotzero"));
@@ -397,6 +436,12 @@ void token(char *lexeme) {
     return;
 }
 
+void u4_create(void) {
+    _jlexeme[0] = '\0';
+    token(_jlexeme);
+    if (_jlexeme[0]) create(_jlexeme);
+}
+
 int outer(void) {
     int addr;
     while (LOOP) {
@@ -448,21 +493,10 @@ void bye(void) {
     LOOP = 0;
 }
 
-void u4_create(void) {
-    _jlexeme[0] = '\0';
-    token(_jlexeme);
-    if (_jlexeme[0]) create(_jlexeme);
-}
-
 void u4_tick(void) {
     _jlexeme[0] = '\0';
     token(_jlexeme);
     if (_jlexeme[0]) push(tick(_jlexeme));
-}
-
-void u4_execute(void) {
-    int xt = pop();
-    execute(xt);
 }
 
 void fetch(void) {
@@ -476,25 +510,98 @@ void store(void) {
     dict[addr].data = value;
 }
 
+void add(void) {
+    int b = pop();
+    int a = pop();
+    push(a+b);
+}
+
+void subtract(void) {
+    int b = pop();
+    int a = pop();
+    push(a-b);
+}
+
+void multiply(void) {
+    int b = pop();
+    int a = pop();
+    push(a*b);
+}
+
+void divide(void) {
+    int b = pop();
+    int a = pop();
+    if (b == 0) push(0);
+    else push(a/b);
+}
+
+void modulus(void) {
+    int b = pop();
+    int a = pop();
+    if (b == 0) push(0);
+    else push(a%b);
+}
+
+void wfetch(void) {
+    unsigned int n = pop();
+    if ((n & 0xfffffffc) == n) {
+        unsigned int *addr = (unsigned int *)n;
+        push(*addr);
+    } else {
+        printf("unaligned read not allowed\n");
+        push(0);
+    }
+}
+
+void wstore(void) {
+    unsigned int n = pop();
+    if ((n & 0xfffffffc) == n) {
+        unsigned int *addr = (unsigned int *)n;
+        int value = pop();
+        *addr = value;
+    } else {
+        printf("unaligned write not allowed\n");
+    }
+}
+
+void dots(void) {
+    int i;
+    printf("<%d(%d)> ", sp, BASE);
+    for (i=0; i<=sp; i++) {
+        dot(stack[i+1]);
+    }
+}
+
 typedef struct {
     char *name;
     void (*code)(void);
 } bulk_t;
 
 bulk_t vocab[] = {
-    {"dolist", dolist},
-    {".", u4_dot},
+    {">r", u4_rpush},
+    {"r>", u4_rpop},
+    {"bye", bye},
+    {"pushlit", pushlit},
     {"branch", branch},
     {"branchnotzero", branchnotzero},
-    {"pushlit", pushlit},
+    {"execute", u4_execute},
+    {"dolist", dolist},
+    {"create", u4_create},
+    {",", u4_comma},
+    {".", u4_dot},
     {"words", words},
     {"dump", dump},
-    {"bye", bye},
-    {"create", u4_create},
     {"'", u4_tick},
-    {"execute", u4_execute},
     {"@", fetch},
     {"!", store},
+    {"w@", wfetch},
+    {"w!", wstore},
+    {"+", add},
+    {"-", subtract},
+    {"*", multiply},
+    {"/", divide},
+    {"%", modulus},
+    {".s", dots},
     {NULL,      NULL}
 };
 
@@ -526,10 +633,19 @@ void u4_init(void) {
     makevar("name",    NAME_OFF);
 
     while (bulk->name != NULL) {
-        //printf("name:%s\n", bulk->name);
         makecode(bulk->name, bulk->code);
         bulk++;
     }
+
+    create("decimal");
+    comma((int)dolist);
+    comma(tick("pushlit"));
+    comma(10);
+    comma(tick("pushlit"));
+    comma(BASE_OFF);
+    comma(tick("store"));
+    comma(NEXT);
+
 }
 
 void u4_start(void) {
