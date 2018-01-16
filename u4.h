@@ -15,10 +15,11 @@ int tick(char *name);
 void execute(int xt);
 void push(int n);
 
-#define SMAX (1000)
-#define RMAX (1000)
-#define NMAX (1000)
-#define DMAX (1000)
+#define SMAX (128)
+#define RMAX (128)
+#define NMAX (4096)
+#define DMAX (16384)
+#define TMAX (80)
 
 typedef struct {
     char *name;

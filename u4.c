@@ -67,6 +67,18 @@ typedef union {
 
 void cold(void);
 
+#if 0
+#define DPTR_OFF
+#define DSTK_OFF
+#define DPTR
+#define DSTR
+
+#define RPTR_OFF
+#define RSTK_OFF
+#define DPTR
+#define DSTR
+#endif
+
 #define BASE_OFF (0)
 #define LOOP_OFF (1)
 #define HERE_OFF (2)
@@ -75,6 +87,7 @@ void cold(void);
 #define VMIP_OFF (5)
 #define COLS_OFF (6)
 // first dictionary entry
+
 #define LINK0 (7)
 #define NAME0 (8)
 #define CODE0 (9)
@@ -212,6 +225,8 @@ void create(char *s) {
     HERE++;
     dict[HERE].name = NAME;
     HERE++;
+    dict[HERE].code = pushlit;
+    dict[HERE+1].data = HERE+1;
     NAME += n;
     NAME++;
 }
@@ -291,7 +306,6 @@ int tick(char *name) {
 
 // OUTER STUFF { --------
 
-#define TMAX (80)
 char tokenb[TMAX+1]; // terminal input buffer
 
 int input(void) {
@@ -496,9 +510,14 @@ void modulus(void) {
     else push(a%b);
 }
 
+int isaligned(int n) {
+    if (n & 3) return 0;
+    return 1;
+}
+
 void wfetch(void) {
     unsigned int n = pop();
-    if ((n & 0xfffffffc) == n) {
+    if (isaligned(n)) {
         unsigned int *addr = (unsigned int *)n;
         push(*addr);
     } else {
@@ -509,7 +528,7 @@ void wfetch(void) {
 
 void wstore(void) {
     unsigned int n = pop();
-    if ((n & 0xfffffffc) == n) {
+    if (isaligned(n)) {
         unsigned int *addr = (unsigned int *)n;
         int value = pop();
         *addr = value;
