@@ -7,18 +7,11 @@
 #include <unistd.h>
 
 /*
-
-s h a m e l e s s . . . 
-
-I stole this ASCII art while watching CoolerVoid compile raptor_waf...
-
-               boing         boing         boing
- e-e           . - .         . - .         . - . 
-(\_/)\      ,'       `.   ,'       `.   ,'       `.
- `-'\ `--._._,         . .           . .           .
-    '\( ,_.-'                                       
-       \                "             "             "
-       ^\'              .             .          compile!
+        ___ 
+ _   __/   |   ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
+| | | | /| |_  http://octetta.com
+| |_| |__   _| A C-based Forth-inspired ball of code.
+|__/|_|  |_|   (c) 1997-2018 joseph.stewart@gmail.com
 
 */
 
@@ -41,6 +34,35 @@ int pop(void) {
     return n;
 }
 
+void drop(void) {
+    pop();
+}
+
+int top(void) {
+    if (sp >= 0) return stack[sp];
+    return 0;
+}
+
+void u4_dup(void) {
+    push(top());
+}
+
+void swap(void) {
+    if (sp >= 1) {
+        int n = stack[sp];
+        stack[sp] = stack[sp-1];
+        stack[sp-1] = n;
+    }
+}
+
+int depth(void) {
+    return sp+1;
+}
+
+void u4_depth(void) {
+    push(depth());
+}
+
 void rpush(int n) {
     if (rs < SMAX) rs++;
     rstack[rs] = n;
@@ -50,6 +72,10 @@ int rpop(void) {
     int n = rstack[rs];
     if (rs >= 0) rs--;
     return n;
+}
+
+void rdrop(void) {
+    rpop();
 }
 
 void u4_rpush(void) {
@@ -82,14 +108,15 @@ void cold(void);
 #define NAME_OFF (4)
 #define VMIP_OFF (5)
 #define COLS_OFF (6)
+#define MODE_OFF (7)
 
 // first dictionary entry
-#define LINK0 (7)
-#define NAME0 (8)
-#define FLAG0 (9)
-#define CODE0 (10)
-#define FREE0 (11)
-#define TEXT0 "cold"
+#define LINK0 (8)
+#define NAME0 (9)
+#define FLAG0 (10)
+#define CODE0 (11)
+#define FREE0 (12)
+#define TEXT0 "ABCD"
 #define TLEN0 sizeof(TEXT0)
 
 #define BASE (dict[BASE_OFF].data)
@@ -99,40 +126,64 @@ void cold(void);
 #define NAME (dict[NAME_OFF].data)
 #define VMIP (dict[VMIP_OFF].data)
 #define COLS (dict[COLS_OFF].data)
+#define MODE (dict[MODE_OFF].data)
 
 cell_t dict[DMAX] = {
-    [BASE_OFF] = {.data = 10},    // 0 BASE variable
-    [LOOP_OFF] = {.data = 1},     // 1 LOOP running variable
-    [HERE_OFF] = {.data = FREE0}, // 2 HERE free dictionary index -----------+
-    [HEAD_OFF] = {.data = LINK0}, // 3 HEAD index to head of dictionary --+  |
-    [NAME_OFF] = {.data = TLEN0}, // 4 NAME free string index             |  |
-    [VMIP_OFF] = {.data = 0},     // 5 VMIP instruction pointer           |  |
-    [COLS_OFF] = {.data = 80},    // 6 COLS instruction pointer           |  |
-    // first "real" dictionary entry (hard-coded)                         |  |
-    [LINK0] = {.link = NONE},     // 7 <----------------------------------+  |
-    [NAME0] = {.name = 0},        // 8 ------------+                         |
-    [FLAG0] = {.flag = 0},        // 9             |                         |
-    [CODE0] = {.code = cold},     // 10  -------+  |                         |
-    [FREE0 ... DMAX-1] = {.data = NEXT}, // <---|--|-- (FREE0) --------------+
-};                                //            |  |
+    [BASE_OFF] = {.data = 10},       // output radix variable
+    [LOOP_OFF] = {.data = 1},        // running variable
+    [HERE_OFF] = {.data = FREE0},    // free dictionary index -----------+
+    [HEAD_OFF] = {.data = LINK0},    // index to head of dictionary --+  |
+    [NAME_OFF] = {.data = TLEN0},    // free string index             |  |
+    [VMIP_OFF] = {.data = 0},        // instruction pointer           |  |
+    [COLS_OFF] = {.data = 80},       // instruction pointer           |  |
+    [MODE_OFF] = {.data = 0},        // current interpret mode        |  |
+    // first "real" dictionary entry (hard-coded)                     |  |
+    [LINK0] = {.link = NONE},        // <-----------------------------+  |
+    [NAME0] = {.name = 0},           // -----------+                     |
+    [FLAG0] = {.flag = FLAG_HIDDEN}, //            |                     |
+    [CODE0] = {.code = cold},        // --------+  |                     |
+    [FREE0 ... DMAX-1] = {.data = NEXT}, // <---|--|-- (FREE0) ----------+
+};                                   //         |  |
 char name[NMAX] = TEXT0; // <-------------------|--+
 //                                              |
 void cold(void) { // <--------------------------+
     printf("cold\n");
 }
 
+void name_base(void) {
+    push(NAME);
+}
+
+void name_fetch(void) {
+    int n = pop();
+    if (n >= 0 && n < NMAX) {
+        push((int)name[n]);
+    }
+}
+
+void name_store(void) {
+    int n = pop();
+    int c = pop();
+    if (n >= 0 && n < NMAX) {
+        name[n] = (char)c;
+    }
+}
+
 char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-void dot(int np) {
+void dot(int np, int pad, int gap) {
     unsigned int number[64];
     unsigned int n = (unsigned int)np;
     int index = 0;
+    int out = 0;
+    int i;
     if (np < 0 && BASE == 10) {
         putchar('-');
         n = -n;
     }
     if (!n) {
         putchar('0');
+        out++;
     } else {
         while (n) {
             number[index] = n % BASE;
@@ -142,13 +193,21 @@ void dot(int np) {
         index--;
         for(; index >= 0; index--) {
             putchar(digits[number[index]]);
+            out++;
         }
     }
-    putchar(' ');
+    if (out < pad) {
+        for (i=0; i<pad-out; i++) {
+            putchar(' ');
+        }
+    }
+    for (i=0; i<gap; i++) {
+        putchar(' ');
+    }
 }
 
 void u4_dot(void) {
-    dot(pop());
+    dot(pop(), 0, 1);
 }
 
 void pushlit(void) {
@@ -186,6 +245,10 @@ int valid(void *code) {
 
 void execute(int xt) {
     //printf("xt = %d\n", xt);
+    if (xt > DMAX) {
+        printf("invalid xt\n");
+        return;
+    }
     if (xt == NEXT) {
         printf("invalid xt\n");
         return;
@@ -232,8 +295,8 @@ void create(char *s) {
     NAME++;
 }
 
-void comma(int c) {
-    dict[HERE++].data = c;
+void comma(int addr) {
+    dict[HERE++].data = addr;
 }
 
 void u4_comma(void) {
@@ -241,53 +304,73 @@ void u4_comma(void) {
 }
 
 void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
-    int c = start;
+    int link = start;
     while (1) {
-        int n = fn(c, e, v);
+        int n = fn(link, e, v);
         if (n < 0) break;
-        if (dict[c].link < 0) break;
-        c = dict[c].link;
+        if (dict[link].link < 0) break;
+        link = dict[link].link;
     }
 }
 
-#define DLINK (0)
-#define DNAME (1)
-#define DFLAG (2)
-#define DCODE (3)
-#define DDATA (4)
+// offsets from LINK to field
+#define L2LINK (0)
+#define L2NAME (1)
+#define L2FLAG (2)
+#define L2CODE (3)
+#define L2DATA (4)
 
-void show_header(int c) {
-    printf("LINK [%d] %d\n",     c+DLINK, dict[c+DLINK].link);
-    printf("NAME [%d] [%d]%s\n", c+DNAME, dict[c+DNAME].name, &name[dict[c+DNAME].name]);
-    printf("FLAG [%d] %d\n",     c+DFLAG, dict[c+DFLAG].flag);
-    printf("CODE [%d] %d\n",     c+DCODE, dict[c+DCODE].data);
+// offsets from CODE to field
+#define C2LINK (-3)
+#define C2NAME (-2)
+#define C2FLAG (-1)
+#define C2CODE (0)
+#define C2DATA (1)
+
+char show_str[80];
+char *show_flags(int n) {
+    show_str[0] = '\0';
+    if (n & FLAG_IMMEDIATE) { strcat(show_str, " IMMEDIATE"); } else { strcat(show_str, " USEMODE"); }
+    if (n & FLAG_HIDDEN) { strcat(show_str, " HIDDEN"); } else { strcat(show_str, " VISIBLE"); }
+    return show_str;
 }
 
-int walk_dump(int c, int *e, void *v) {
-    int *pc = (int *)v;
+void show_header(int link) {
+    printf("LINK [%d] %d\n",     link + L2LINK, dict[link + L2LINK].link);
+    printf("NAME [%d] [%d]%s\n", link + L2NAME, dict[link + L2NAME].name, &name[dict[link+L2NAME].name]);
+    printf("FLAG [%d] (%d)%s\n",   link + L2FLAG, dict[link + L2FLAG].flag, show_flags(dict[link + L2FLAG].flag));
+    printf("CODE [%d] %d\n",     link + L2CODE, dict[link + L2CODE].data);
+}
+
+int walk_dump(int link, int *e, void *v) {
+    int *plink = (int *)v;
     int i;
     printf("\n");
-    show_header(c);
-    for (i=c+DDATA; i<*pc; i++) {
+    show_header(link);
+    for (i=link + L2DATA; i<*plink; i++) {
         printf("     [%d] %d\n", i, dict[i].data);
     }
-    *pc = c;
+    *plink = link;
     return 0;
 }
 void dump(void) {
-    int lc = HERE;
-    walk(HEAD, walk_dump, NULL, &lc);
+    int dlink = HERE;
+    walk(HEAD, walk_dump, NULL, &dlink);
     printf("\n");
 }
 
 int words_arg = 0;
 int walk_words(int c, int *e, void *v) {
-    int n = strlen(&name[dict[c+DNAME].name]);
-    if (n + words_arg > COLS) {
+    //if ((dict[c+L2FLAG].data & MASK_HIDE) == FLAG_HIDDEN) return 0;
+    char *str = &name[dict[c+L2NAME].name];
+    int n = strlen(str) + 1;
+    if ((n + words_arg) > COLS) {
         printf("\n");
-        words_arg = 0;
-    } words_arg += n;
-    printf("%s ", &name[dict[c+DNAME].name]);
+        words_arg = n;
+    } else {
+        words_arg += n;
+    }
+    printf("%s ", str);
     return 0;
 }
 void words(void) {
@@ -297,8 +380,9 @@ void words(void) {
 }
 
 int walk_tick(int c, int *e, void *v) {
-    if (strcasecmp((char *)v, &name[dict[c+DNAME].name]) == 0) {
-        *e = c+DCODE;
+    char *str = &name[dict[c+L2NAME].name];
+    if (strcasecmp((char *)v, str) == 0) {
+        *e = c+L2CODE;
         return NONE;
     }
     return 0;
@@ -308,7 +392,6 @@ int tick(char *name) {
     walk(HEAD, walk_tick, &e, name);
     return e;
 }
-
 
 // INNER STUFF } --------
 
@@ -378,10 +461,10 @@ void u4_create(void) {
 }
 
 int walk_forget(int c, int *e, void *v) {
-    if (strcasecmp((char *)v, &name[dict[c+DNAME].name]) == 0) {
-        HEAD = dict[c+DLINK].link;
+    if (strcasecmp((char *)v, &name[dict[c+L2NAME].name]) == 0) {
+        HEAD = dict[c+L2LINK].link;
         HERE = c;
-        NAME = dict[c+DNAME].name;
+        NAME = dict[c+L2NAME].name;
         return NONE;
     }
     return 0;
@@ -397,10 +480,10 @@ void u4_forget(void) {
 
 int see_arg = 0;
 int walk_see(int c, int *e, void *v) {
-    if (strcasecmp((char *)v, &name[dict[c+DNAME].name]) == 0) {
+    if (strcasecmp((char *)v, &name[dict[c+L2NAME].name]) == 0) {
         int i;
         show_header(c);
-        for (i=c+DDATA; i<see_arg; i++) {
+        for (i=c+L2DATA; i<see_arg; i++) {
             printf("     [%d] %d\n", i, dict[i].data);
         }
         return NONE;
@@ -447,13 +530,28 @@ int outer(void) {
                 printf("? ");
             } else if (n == UINT32_MAX && (errno == ERANGE)) {
                 //printf("? out of range ");
-                push(UINT32_MAX);
+                n = UINT32_MAX;
+            }
+            if (MODE == FLAG_COMPILE) {
+                // stuff token and number to dictionary
+                comma(tick("pushlit"));
+                comma(n);
             } else {
                 push(n);
             }
         } else {
-            // invoke the function in the dictionary
-            execute(addr);
+            if (MODE == FLAG_COMPILE) {
+                if ((dict[addr + C2FLAG].data & MASK_MODE) == FLAG_IMMEDIATE) {
+                    // invoke the function in the dictionary
+                    execute(addr);
+                } else {
+                    // stuff token to dictionary
+                    comma(addr);
+                }
+            } else {
+                // invoke the function in the dictionary
+                execute(addr);
+            }
 
         }
         tokenp++;
@@ -518,6 +616,66 @@ void modulus(void) {
     else push(a%b);
 }
 
+void band(void) {
+    int b = pop();
+    int a = pop();
+    push(a&b);
+}
+
+void bor(void) {
+    int b = pop();
+    int a = pop();
+    push(a|b);
+}
+
+void bxor(void) {
+    int b = pop();
+    int a = pop();
+    push(a^b);
+}
+
+void blsh(void) {
+    int b = pop();
+    int a = pop();
+    push(a<<b);
+}
+
+void brsh(void) {
+    int b = pop();
+    int a = pop();
+    push(a>>b);
+}
+
+void clt(void) {
+    int b = pop();
+    int a = pop();
+    push(a<b);
+}
+
+void cgt(void) {
+    int b = pop();
+    int a = pop();
+    push(a>b);
+}
+
+void ceq(void) {
+    int b = pop();
+    int a = pop();
+    push(a==b);
+}
+
+void cand(void) {
+    int b = pop();
+    int a = pop();
+    push(a&&b);
+}
+
+void cor(void) {
+    int b = pop();
+    int a = pop();
+    push(a||b);
+}
+
 int isaligned(int n) {
     if (n & 3) return 0;
     return 1;
@@ -547,9 +705,9 @@ void wstore(void) {
 
 void dots(void) {
     int i;
-    printf("<%d(%d)> ", sp, BASE);
+    printf("<%d(%d)> ", sp+1, BASE);
     for (i=0; i<=sp; i++) {
-        dot(stack[i+1]);
+        dot(stack[i], 0, 1);
     }
 }
 
@@ -618,7 +776,41 @@ void u4_name(void) {
     push((int)&name);
 }
 
+void compile(void) {
+    MODE = FLAG_COMPILE;
+}
+
+void colon(void) {
+    if (MODE == FLAG_COMPILE) return;
+    u4_create();
+    comma((int)docolon);
+    compile();
+}
+
+void immediate(void) {
+    MODE = FLAG_IMMEDIATE;
+}
+
+void semi(void) {
+    if (MODE == FLAG_IMMEDIATE) return;
+    comma(NEXT);
+    immediate();
+}
+
+void emit(void) {
+    putchar(pop());
+    fflush(stdout);
+}
+
 bulk_t vocab[] = {
+    {"$$",       name_base},
+    {"$@",       name_fetch},
+    {"$!",       name_store},
+    {"depth",    u4_depth},
+    {"drop",     drop},
+    {"dup",      u4_dup},
+    {"swap",     swap},
+    {"rdrop",    rdrop},
     {">r",       u4_rpush},
     {"r>",       u4_rpop},
     {"bye",      bye},
@@ -638,11 +830,25 @@ bulk_t vocab[] = {
     {"!",        store},
     {"w@",       wfetch},
     {"w!",       wstore},
+    //
     {"+",        add},
     {"-",        subtract},
     {"*",        multiply},
     {"/",        divide},
     {"%",        modulus},
+    //
+    {"&",        band},
+    {"|",        bor},
+    {"^",        bxor},
+    {"<<",       blsh},
+    {">>",       brsh},
+    //
+    {"&&",       cand},
+    {"||",       cor},
+    {"<",        clt},
+    {">",        cgt},
+    {"==",       ceq},
+    //
     {".s",       dots},
     {"decimal",  decimal},
     {"hex",      hex},
@@ -651,9 +857,15 @@ bulk_t vocab[] = {
     {"allot",    allot},
     {"callot",   callot},
     {"cdump",    u4_cdump},
-    // use this to impede forgetting previous words
     {"$name",    u4_name},
-    {"forget",   u4_forget},
+    {"cr",       cr},
+    {"immediate", immediate},
+    {"compile",   compile},
+    {":",         colon},
+    {";",         semi},
+    {"emit",      emit},
+    // ****
+    {"forget",   u4_forget}, // place here to impede forgetting previous words
     {NULL,       NULL}
 };
 
@@ -671,6 +883,9 @@ void makevar(char *name, int n) {
 
 void u4_init(void) {
     bulk_t *bulk = vocab;
+    int n;
+    sp = -1;
+    rs = -1;
 
     reg(cold);
 
@@ -681,23 +896,31 @@ void u4_init(void) {
     makevar("name",    NAME_OFF);
     makevar("ip",      VMIP_OFF);
     makevar("cols",    COLS_OFF);
+    makevar("mode",    MODE_OFF);
 
     while (bulk->name != NULL) {
         makecode(bulk->name, bulk->code);
         bulk++;
     }
 
-#if 0
+#if 1
     // example
-    create("decimal");
+    create("hhg");
     comma((int)docolon);
     comma(tick("pushlit"));
-    comma(10);
-    comma(tick("pushlit"));
-    comma(BASE_OFF);
-    comma(tick("store"));
+    comma(47);
+    comma(tick("."));
     comma(NEXT);
 #endif
+
+    n = tick(";");
+    if (n >= 0) {
+        dict[n + C2FLAG].data |= FLAG_IMMEDIATE;
+    } else {
+        printf("something went wrong. contact joe\n");
+    }
+
+    MODE = FLAG_IMMEDIATE;
 }
 
 void u4_start(void) {
@@ -724,10 +947,6 @@ void native(char *name, void (*fn)(void)) {
     reg(fn);
     create(name);
     comma((int)fn);
-}
-
-int depth(void) {
-    return sp+1;
 }
 
 // } ----
