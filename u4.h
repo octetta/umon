@@ -1,6 +1,14 @@
 #ifndef _U4_DEF_
 #define _U4_DEF_
 
+typedef union {
+    int data;
+    void (*code)(void);
+    int flag;
+    int link;
+    int name;
+} cell_t;
+
 void reg(void *code);
 void create(char *s);
 void comma(int c);

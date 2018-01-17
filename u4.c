@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/errno.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 /*
@@ -58,13 +60,6 @@ void u4_rpop(void) {
     push(rpop());
 }
 
-typedef union {
-    int data;
-    void (*code)(void);
-    int link;
-    int name;
-} cell_t;
-
 void cold(void);
 
 #if 0
@@ -79,6 +74,7 @@ void cold(void);
 #define DSTR
 #endif
 
+// vm registers in dictionary
 #define BASE_OFF (0)
 #define LOOP_OFF (1)
 #define HERE_OFF (2)
@@ -86,12 +82,13 @@ void cold(void);
 #define NAME_OFF (4)
 #define VMIP_OFF (5)
 #define COLS_OFF (6)
-// first dictionary entry
 
+// first dictionary entry
 #define LINK0 (7)
 #define NAME0 (8)
-#define CODE0 (9)
-#define FREE0 (10)
+#define FLAG0 (9)
+#define CODE0 (10)
+#define FREE0 (11)
 #define TEXT0 "cold"
 #define TLEN0 sizeof(TEXT0)
 
@@ -113,9 +110,11 @@ cell_t dict[DMAX] = {
     [COLS_OFF] = {.data = 80},    // 6 COLS instruction pointer           |  |
     // first "real" dictionary entry (hard-coded)                         |  |
     [LINK0] = {.link = NONE},     // 7 <----------------------------------+  |
-    [NAME0] = {.name =  0},       // 8 ------------+                         |
-    [CODE0] = {.code = cold},     // 9 ---------+  |                         |
-};                                // 10 free <--|--|-------------------------+
+    [NAME0] = {.name = 0},        // 8 ------------+                         |
+    [FLAG0] = {.flag = 0},        // 9             |                         |
+    [CODE0] = {.code = cold},     // 10  -------+  |                         |
+    [FREE0 ... DMAX-1] = {.data = NEXT}, // <---|--|-- (FREE0) --------------+
+};                                //            |  |
 char name[NMAX] = TEXT0; // <-------------------|--+
 //                                              |
 void cold(void) { // <--------------------------+
@@ -225,6 +224,8 @@ void create(char *s) {
     HERE++;
     dict[HERE].name = NAME;
     HERE++;
+    dict[HERE].flag = 0;
+    HERE++;
     dict[HERE].code = pushlit;
     dict[HERE+1].data = HERE+1;
     NAME += n;
@@ -249,10 +250,17 @@ void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
     }
 }
 
+#define DLINK (0)
+#define DNAME (1)
+#define DFLAG (2)
+#define DCODE (3)
+#define DDATA (4)
+
 void show_header(int c) {
-    printf("LINK [%d] %d\n",   c+0, dict[c+0].link);
-    printf("NAME [%d] [%d]%s\n", c+1, dict[c+1].name, &name[dict[c+1].name]);
-    printf("CODE [%d] %d\n",   c+2, dict[c+2].data);
+    printf("LINK [%d] %d\n",     c+DLINK, dict[c+DLINK].link);
+    printf("NAME [%d] [%d]%s\n", c+DNAME, dict[c+DNAME].name, &name[dict[c+DNAME].name]);
+    printf("FLAG [%d] %d\n",     c+DFLAG, dict[c+DFLAG].flag);
+    printf("CODE [%d] %d\n",     c+DCODE, dict[c+DCODE].data);
 }
 
 int walk_dump(int c, int *e, void *v) {
@@ -260,7 +268,7 @@ int walk_dump(int c, int *e, void *v) {
     int i;
     printf("\n");
     show_header(c);
-    for (i=c+3; i<*pc; i++) {
+    for (i=c+DDATA; i<*pc; i++) {
         printf("     [%d] %d\n", i, dict[i].data);
     }
     *pc = c;
@@ -274,12 +282,12 @@ void dump(void) {
 
 int words_arg = 0;
 int walk_words(int c, int *e, void *v) {
-    int n = strlen(&name[dict[c+1].name]);
+    int n = strlen(&name[dict[c+DNAME].name]);
     if (n + words_arg > COLS) {
         printf("\n");
         words_arg = 0;
     } words_arg += n;
-    printf("%s ", &name[dict[c+1].name]);
+    printf("%s ", &name[dict[c+DNAME].name]);
     return 0;
 }
 void words(void) {
@@ -289,8 +297,8 @@ void words(void) {
 }
 
 int walk_tick(int c, int *e, void *v) {
-    if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
-        *e = c+2;
+    if (strcasecmp((char *)v, &name[dict[c+DNAME].name]) == 0) {
+        *e = c+DCODE;
         return NONE;
     }
     return 0;
@@ -369,10 +377,11 @@ void u4_create(void) {
     if (token_jlexeme[0]) create(token_jlexeme);
 }
 
-#if 0
 int walk_forget(int c, int *e, void *v) {
-    if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
-        show_header(c);
+    if (strcasecmp((char *)v, &name[dict[c+DNAME].name]) == 0) {
+        HEAD = dict[c+DLINK].link;
+        HERE = c;
+        NAME = dict[c+DNAME].name;
         return NONE;
     }
     return 0;
@@ -385,14 +394,13 @@ void u4_forget(void) {
     token(token_jlexeme);
     if (token_jlexeme[0]) forget(token_jlexeme);
 }
-#endif
 
 int see_arg = 0;
 int walk_see(int c, int *e, void *v) {
-    if (strcasecmp((char *)v, &name[dict[c+1].name]) == 0) {
+    if (strcasecmp((char *)v, &name[dict[c+DNAME].name]) == 0) {
         int i;
         show_header(c);
-        for (i=c+3; i<see_arg; i++) {
+        for (i=c+DDATA; i<see_arg; i++) {
             printf("     [%d] %d\n", i, dict[i].data);
         }
         return NONE;
@@ -545,6 +553,11 @@ void dots(void) {
     }
 }
 
+void cr(void) {
+    printf("\n");
+    fflush(stdout);
+}
+
 void decimal(void) {
     BASE = 10;
 }
@@ -555,6 +568,54 @@ void hex(void) {
 
 void binary(void) {
     BASE = 2;
+}
+
+void allot(void) {
+    int n = pop();
+    HERE += n;
+}
+
+void callot(void) {
+    int n = pop();
+    n /= 4;
+    HERE += (((n + 3) / 4) * 4);
+}
+
+#define DLEN 16
+void cdump(char *a, int len) {
+    int i;
+    int n = 0;
+    char l[DLEN+1];
+    for (i=0; i<len; i++) {
+        char c = a[i];
+        if (n == 0) {
+            printf("%04x ", i);
+        }
+        if (i % 8 == 0) printf(" ");
+        printf("%02x ", a[i]);
+        if (c < 32 || c > 126) c = '_';
+        l[n] = c;
+        n++;
+        l[n] = '\0';
+        if (n >= DLEN) {
+            printf(" %s\n", l);
+            n = 0;
+        }
+    }
+    if (n > 0) {
+        printf("%*s", (DLEN-n)*3, " ");
+        printf(" %s\n", l);
+    }
+}
+
+void u4_cdump(void) {
+    int len = pop();
+    char *addr = (char *)pop();
+    cdump(addr, len);
+}
+
+void u4_name(void) {
+    push((int)&name);
 }
 
 bulk_t vocab[] = {
@@ -569,6 +630,7 @@ bulk_t vocab[] = {
     {"create",   u4_create},
     {",",        u4_comma},
     {".",        u4_dot},
+    {"cr",       cr},
     {"words",    words},
     {"dump",     dump},
     {"'",        u4_tick},
@@ -585,8 +647,13 @@ bulk_t vocab[] = {
     {"decimal",  decimal},
     {"hex",      hex},
     {"binary",   binary},
-    //{"forget", u4_forget},
     {"see",      u4_see},
+    {"allot",    allot},
+    {"callot",   callot},
+    {"cdump",    u4_cdump},
+    // use this to impede forgetting previous words
+    {"$name",    u4_name},
+    {"forget",   u4_forget},
     {NULL,       NULL}
 };
 
@@ -603,14 +670,9 @@ void makevar(char *name, int n) {
 }
 
 void u4_init(void) {
-    int i;
     bulk_t *bulk = vocab;
 
     reg(cold);
-
-    for (i=HERE; i<DMAX; i++) {
-        dict[i].data = NEXT;
-    }
 
     makevar("base",    BASE_OFF);
     makevar("running", LOOP_OFF);
@@ -650,6 +712,25 @@ void u4_start(void) {
 }
 
 // OUTER STUFF } --------
+
+// bridge functions for umon replacement { ----
+
+void start_umon(void) {
+    u4_init();
+    u4_start();
+}
+
+void native(char *name, void (*fn)(void)) {
+    reg(fn);
+    create(name);
+    comma((int)fn);
+}
+
+int depth(void) {
+    return sp+1;
+}
+
+// } ----
 
 #ifdef U4_MAIN
 int main(int argc, char *argv[]) {
