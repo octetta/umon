@@ -303,10 +303,10 @@ void u4_comma(void) {
     comma(pop());
 }
 
-void walk(int start, int (*fn)(int, int *, void *), int *e, void *v) {
+void walk(int start, int (*fn)(int, int *, void *), int *e, void *arg) {
     int link = start;
     while (1) {
-        int n = fn(link, e, v);
+        int n = fn(link, e, arg);
         if (n < 0) break;
         if (dict[link].link < 0) break;
         link = dict[link].link;
@@ -342,8 +342,8 @@ void show_header(int link) {
     printf("CODE [%d] %d\n",     link + L2CODE, dict[link + L2CODE].data);
 }
 
-int walk_dump(int link, int *e, void *v) {
-    int *plink = (int *)v;
+int walk_dump(int link, int *ret, void *arg) {
+    int *plink = (int *)arg;
     int i;
     printf("\n");
     show_header(link);
@@ -360,9 +360,9 @@ void dump(void) {
 }
 
 int words_arg = 0;
-int walk_words(int c, int *e, void *v) {
-    //if ((dict[c+L2FLAG].data & MASK_HIDE) == FLAG_HIDDEN) return 0;
-    char *str = &name[dict[c+L2NAME].name];
+int walk_words(int link, int *ret, void *arg) {
+    if ((dict[link + L2FLAG].data & MASK_HIDE) == FLAG_HIDDEN) return 0;
+    char *str = &name[dict[link + L2NAME].name];
     int n = strlen(str) + 1;
     if ((n + words_arg) > COLS) {
         printf("\n");
@@ -379,18 +379,18 @@ void words(void) {
     if (words_arg) printf("\n");
 }
 
-int walk_tick(int c, int *e, void *v) {
-    char *str = &name[dict[c+L2NAME].name];
-    if (strcasecmp((char *)v, str) == 0) {
-        *e = c+L2CODE;
+int walk_tick(int link, int *ret, void *arg) {
+    char *str = &name[dict[link + L2NAME].name];
+    if (strcasecmp((char *)arg, str) == 0) {
+        *ret = link + L2CODE;
         return NONE;
     }
     return 0;
 }
 int tick(char *name) {
-    int e = NONE;
-    walk(HEAD, walk_tick, &e, name);
-    return e;
+    int ret = NONE;
+    walk(HEAD, walk_tick, &ret, name);
+    return ret;
 }
 
 // INNER STUFF } --------
