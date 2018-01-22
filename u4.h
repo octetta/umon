@@ -2,8 +2,8 @@
         ___ 
  _   __/   |   ( u4 -- ) : hello ." Hello World" ;
 | | | | /| |_  http://octetta.com
-| |_| |__   _| A C-based Forth-inspired ball of code.
-|__/|_|  |_|   (c) 1997-2018 joseph.stewart@gmail.com
+| |_| |__   _| u4(tm) A C-based Forth-inspired ball of code.
+|__/|_|  |_|tm (c) 1996-2018 joseph.stewart@gmail.com
 
 */
 
@@ -48,13 +48,13 @@ void makevar(char *name, int n);
 void u4_init(void);
 void u4_start(void);
 
-#define FLAG_IMMEDIATE (1)
-#define MASK_MODE      (FLAG_IMMEDIATE)
-#define FLAG_USEMODE   (~FLAG_IMMEDIATE)
-#define FLAG_COMPILE   (0)
+#define F_IMMEDIATE (1<<0)
+#define M_MODE      (F_IMMEDIATE)
+#define F_USEMODE   (~F_IMMEDIATE)
+#define F_COMPILE   (0)
 
-#define FLAG_HIDDEN    (1<<1)
-#define MASK_HIDE      (FLAG_HIDDEN)
-#define FLAG_VISIBLE   (~FLAG_HIDDEN)
+#define F_HIDDEN    (1<<1)
+#define M_HIDE      (F_HIDDEN)
+#define F_VISIBLE   (~F_HIDDEN)
 
 #endif

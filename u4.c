@@ -10,26 +10,61 @@
         ___ 
  _   __/   |   ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
 | | | | /| |_  http://octetta.com
-| |_| |__   _| A C-based Forth-inspired ball of code.
-|__/|_|  |_|   (c) 1997-2018 joseph.stewart@gmail.com
+| |_| |__   _| u4(tm) A C-based Forth-inspired ball of code.
+|__/|_|  |_|tm (c) 1996-2018 joseph.stewart@gmail.com
+ 
+In it's current form, this is used by:
+
+ _   _  __  __  ___  _  __
+| | | |/, |/, |/ _ \| |/, |
+| |_| | | | | | |_| | | | |
+|__/|_| |_| |_|\___/|_| |_| (umon)
+
+aka
+    __        __
+   / /_,__ __/ /__
+  / //_/ // / / _ \
+ / ,< / // / / // /
+/_/\_|\_, /_/\___/ (kylo)
+     /___/         
+
+aka
+   _
+  |_|___  ___ _ __  ___ _ _
+  | / _ \/ +_| `  \/ _ \ ` \
+ _/ \___/\___|_|_|_\___/_|_| (joemon)
+|__/
+
+...but has roots stretching back to 1994-ish in C-form and 1980 in "others".
 
 */
 
 #include "u4.h"
 
-// INNER STUFF { --------
+char *splash =
+"         ___    \n"
+"  _   __/   |   \n"
+" | | | | /| |_  \n"
+" | |_| |__   _| \n"
+" |__/|_|  |_|tm \n";
+
+// stack manipulation functions {
+
 int stack[SMAX];
 int rstack[RMAX];
 int sp = 0;
 int rs = 0;
 
+
 void push(int n) {
+    printf("push(%d)\n", n);
     if (sp < SMAX) sp++;
     stack[sp] = n;
 }
 
 int pop(void) {
     int n = stack[sp];
+    printf("pop()=%d\n", n);
     if (sp >= 0) sp--;
     return n;
 }
@@ -64,12 +99,14 @@ void u4_depth(void) {
 }
 
 void rpush(int n) {
+    printf("rpush(%d)\n", n);
     if (rs < SMAX) rs++;
     rstack[rs] = n;
 }
 
 int rpop(void) {
     int n = rstack[rs];
+    printf("rpop()=%d\n", n);
     if (rs >= 0) rs--;
     return n;
 }
@@ -86,6 +123,12 @@ void u4_rpop(void) {
     push(rpop());
 }
 
+// }
+
+
+// Setup dictionary {
+
+// Forward reference to the first C-fn in dictionary.
 void cold(void);
 
 #if 0
@@ -108,16 +151,19 @@ void cold(void);
 #define NAME_OFF (4)
 #define VMIP_OFF (5)
 #define COLS_OFF (6)
-#define MODE_OFF (7)
+#define PMPT_OFF (7)
+#define MODE_OFF (8)
 
 // first dictionary entry
-#define LINK0 (8)
-#define NAME0 (9)
-#define FLAG0 (10)
-#define CODE0 (11)
-#define FREE0 (12)
-#define TEXT0 "ABCD"
-#define TLEN0 sizeof(TEXT0)
+#define LINK0 (9)
+#define NAME0 (10)
+#define FLAG0 (11)
+#define CODE0 (12)
+#define FREE0 (13)
+#define _U4_0 "_u4_\0"
+#define PMPT0 "ok \0"
+#define TEXT0 _U4_0 PMPT0
+#define NLEN0 (sizeof(_U4_0) + sizeof(PMPT0))
 
 #define BASE (dict[BASE_OFF].data)
 #define LOOP (dict[LOOP_OFF].data)
@@ -126,6 +172,7 @@ void cold(void);
 #define NAME (dict[NAME_OFF].data)
 #define VMIP (dict[VMIP_OFF].data)
 #define COLS (dict[COLS_OFF].data)
+#define PMPT (dict[PMPT_OFF].data)
 #define MODE (dict[MODE_OFF].data)
 
 cell_t dict[DMAX] = {
@@ -133,23 +180,27 @@ cell_t dict[DMAX] = {
     [LOOP_OFF] = {.data = 1},        // running variable
     [HERE_OFF] = {.data = FREE0},    // free dictionary index -----------+
     [HEAD_OFF] = {.data = LINK0},    // index to head of dictionary --+  |
-    [NAME_OFF] = {.data = TLEN0},    // free string index             |  |
+    [NAME_OFF] = {.data = NLEN0},    // free string index             |  |
     [VMIP_OFF] = {.data = 0},        // instruction pointer           |  |
-    [COLS_OFF] = {.data = 80},       // instruction pointer           |  |
-    [MODE_OFF] = {.data = 0},        // current interpret mode        |  |
+    [COLS_OFF] = {.data = 80},       // terminal column width         |  |
+    [PMPT_OFF] = {.data = sizeof(_U4_0)-1}, // interpreter prompt     |  |
+    [MODE_OFF] = {.data = F_IMMEDIATE}, // current interpret mode     |  |
     // first "real" dictionary entry (hard-coded)                     |  |
     [LINK0] = {.link = NONE},        // <-----------------------------+  |
     [NAME0] = {.name = 0},           // -----------+                     |
-    [FLAG0] = {.flag = FLAG_HIDDEN}, //            |                     |
+    [FLAG0] = {.flag = F_HIDDEN}, //               |                     |
     [CODE0] = {.code = cold},        // --------+  |                     |
     [FREE0 ... DMAX-1] = {.data = NEXT}, // <---|--|-- (FREE0) ----------+
 };                                   //         |  |
 char name[NMAX] = TEXT0; // <-------------------|--+
 //                                              |
 void cold(void) { // <--------------------------+
-    printf("cold\n");
+    printf("%s\n", splash);
 }
 
+// }
+
+// Helper functions to access the name array {
 void name_base(void) {
     push(NAME);
 }
@@ -169,6 +220,9 @@ void name_store(void) {
     }
 }
 
+// }
+
+// Magic Forth-ish number printing function. Supports output base >= 2 and <= 36
 char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 void dot(int np, int pad, int gap) {
@@ -210,26 +264,15 @@ void u4_dot(void) {
     dot(pop(), 0, 1);
 }
 
-void pushlit(void) {
-    VMIP++;
-    push(dict[VMIP].data);
-}
+// }
 
-void branch(void) {
-    VMIP++;
-    VMIP += dict[VMIP].data;
-}
-
-void branchzero(void) {
-    VMIP++;
-    int addr = dict[VMIP].data;
-    if (pop()) {
-        //printf("not zero\n");
-    } else {
-        //printf("zero\n");
-        VMIP += addr;
-    }
-}
+// This is a weak but light-weight barrier against trying to jump into
+// code that isn't a c-function. when a function is registered, its
+// address is (possibly) added to the associated hi/lo boundaries of
+// where functions are "supposed" to live. I've not done any research
+// or testing to see how this performs on any place other than linux
+// osx or rtems though, and I suspect trouble with functions contained
+// in shared libraries
 
 void *reg_lo = (void *)0xffffffff;
 void *reg_hi = (void *)0;
@@ -243,13 +286,32 @@ int valid(void *code) {
     return 0;
 }
 
-void execute(int xt) {
-    //printf("xt = %d\n", xt);
-    if (xt > DMAX) {
-        printf("invalid xt\n");
-        return;
+void pushlit(void) {
+    VMIP++;
+    push(dict[VMIP].data);
+}
+
+void branch(void) {
+    VMIP++;
+    VMIP += dict[VMIP].data;
+}
+
+void zerobranch(void) {
+    VMIP++;
+    int addr = dict[VMIP].data;
+    if (pop()) {
+        //printf("not zero\n");
+    } else {
+        //printf("zero\n");
+        VMIP += addr;
     }
-    if (xt == NEXT) {
+}
+
+// Use the provided index that points to a function and call it as a C-fn.
+void execute(int xt) {
+    printf("execute(%d)\n", xt);
+    if (xt == NEXT) return;
+    if (xt < 0 || xt > DMAX) {
         printf("invalid xt\n");
         return;
     }
@@ -260,22 +322,36 @@ void execute(int xt) {
     } else printf("invalid code\n");
 }
 
+// Provide a version that uses the stack.
 void u4_execute(void) {
     int xt = pop();
     execute(xt);
 }
 
 void docolon(void) {
+    // VMIP contains XT for me followed by the current list of tokens
+    int IP = VMIP;
+    while (1) {
+        IP++;
+        rpush(IP);
+        IP = dict[IP].data;
+        printf("dict[%d].data : %d\n", IP, dict[IP].data);
+        if (dict[IP].data == NEXT) break;
+        execute(dict[IP].data);
+    }
+    IP = rpop();
+}
+
+void __docolon(void) {
     rpush(VMIP);
+    //printf("+VMIP:%d\n", VMIP);
     while (1) {
         VMIP++;
+        //printf(" VMIP:%d\n", VMIP);
         if (dict[VMIP].data == NEXT) break;
-#if 1
         dict[dict[VMIP].data].code();
-#else
-        execute(VMIP);
-#endif
     }
+    //printf(" EXIT\n");
     VMIP = rpop();
 }
 
@@ -296,12 +372,43 @@ void create(char *s) {
 }
 
 void comma(int addr) {
+    printf("dict[%d].data = %d\n", HERE+1, addr);
     dict[HERE++].data = addr;
 }
 
 void u4_comma(void) {
     comma(pop());
 }
+
+/*
+
+     : a . ;
+
+     +------+
+ +-->| LINK | --> index of previous link in dictionary array
+ |   +------+
+ |   | NAME | --> index of "a" in name array
+ |   +------+
+ |   | FLAG |
+ |   +------+
+ |   | CODE | --> function pointer to c-code of "docolon"
+ |   +------+
+ |   | DATA | --+ index to "." in dictionary array
+ |   +------+   |
+ |   | EXIT |   |
+ |   +------+   |
+ |              |
+ |   +------+   |
+ +---| LINK |   | 
+     +------+   |
+     | NAME |   | --> index to "." in name array
+     +------+   |
+     | FLAG |   |
+     +------+   |
+     | CODE |<--+ --> function pointer to c-code of "."
+     +------+
+
+*/
 
 void walk(int start, int (*fn)(int, int *, void *), int *e, void *arg) {
     int link = start;
@@ -330,23 +437,27 @@ void walk(int start, int (*fn)(int, int *, void *), int *e, void *arg) {
 char show_str[80];
 char *show_flags(int n) {
     show_str[0] = '\0';
-    if (n & FLAG_IMMEDIATE) { strcat(show_str, " IMMEDIATE"); } else { strcat(show_str, " USEMODE"); }
-    if (n & FLAG_HIDDEN) { strcat(show_str, " HIDDEN"); } else { strcat(show_str, " VISIBLE"); }
+    if (n & F_IMMEDIATE) { strcat(show_str, " IMMEDIATE"); } else { strcat(show_str, " USEMODE"); }
+    if (n & F_HIDDEN) { strcat(show_str, " HIDDEN"); } else { strcat(show_str, " VISIBLE"); }
     return show_str;
 }
 
-void show_header(int link) {
+void see_header(int link) {
     printf("LINK [%d] %d\n",     link + L2LINK, dict[link + L2LINK].link);
-    printf("NAME [%d] [%d]%s\n", link + L2NAME, dict[link + L2NAME].name, &name[dict[link+L2NAME].name]);
-    printf("FLAG [%d] (%d)%s\n",   link + L2FLAG, dict[link + L2FLAG].flag, show_flags(dict[link + L2FLAG].flag));
+    printf("NAME [%d] $%d=%s\n", link + L2NAME, dict[link + L2NAME].name, &name[dict[link+L2NAME].name]);
+    printf("FLAG [%d] (%d)%s\n", link + L2FLAG, dict[link + L2FLAG].flag, show_flags(dict[link + L2FLAG].flag));
     printf("CODE [%d] %d\n",     link + L2CODE, dict[link + L2CODE].data);
+}
+
+void u4__see(void) {
+    see_header(pop() + C2LINK);
 }
 
 int walk_dump(int link, int *ret, void *arg) {
     int *plink = (int *)arg;
     int i;
     printf("\n");
-    show_header(link);
+    see_header(link);
     for (i=link + L2DATA; i<*plink; i++) {
         printf("     [%d] %d\n", i, dict[i].data);
     }
@@ -359,23 +470,23 @@ void dump(void) {
     printf("\n");
 }
 
-int words_arg = 0;
 int walk_words(int link, int *ret, void *arg) {
-    if ((dict[link + L2FLAG].data & MASK_HIDE) == FLAG_HIDDEN) return 0;
+    int *pwords_arg = (int *)arg;
+    if ((dict[link + L2FLAG].data & M_HIDE) == F_HIDDEN) return 0;
     char *str = &name[dict[link + L2NAME].name];
     int n = strlen(str) + 1;
-    if ((n + words_arg) > COLS) {
+    if ((n + *pwords_arg) > COLS) {
         printf("\n");
-        words_arg = n;
+        *pwords_arg = n;
     } else {
-        words_arg += n;
+        *pwords_arg += n;
     }
     printf("%s ", str);
     return 0;
 }
 void words(void) {
-    words_arg = 0;
-    walk(HEAD, walk_words, NULL, NULL);
+    int words_arg = 0;
+    walk(HEAD, walk_words, NULL, &words_arg);
     if (words_arg) printf("\n");
 }
 
@@ -393,14 +504,14 @@ int tick(char *name) {
     return ret;
 }
 
-// INNER STUFF } --------
-
-// OUTER STUFF { --------
-
 char tokenb[TMAX+1]; // terminal input buffer
 
 int input(void) {
     char *line;
+    if (PMPT) {
+        printf("%s", &name[PMPT]);
+        fflush(stdout);
+    }
     line = fgets(tokenb, TMAX, stdin);
     if (line == NULL) {
         tokenb[0] = '\0';
@@ -482,7 +593,7 @@ int see_arg = 0;
 int walk_see(int c, int *e, void *v) {
     if (strcasecmp((char *)v, &name[dict[c+L2NAME].name]) == 0) {
         int i;
-        show_header(c);
+        see_header(c);
         for (i=c+L2DATA; i<see_arg; i++) {
             printf("     [%d] %d\n", i, dict[i].data);
         }
@@ -532,7 +643,7 @@ int outer(void) {
                 //printf("? out of range ");
                 n = UINT32_MAX;
             }
-            if (MODE == FLAG_COMPILE) {
+            if (MODE == F_COMPILE) {
                 // stuff token and number to dictionary
                 comma(tick("pushlit"));
                 comma(n);
@@ -540,8 +651,8 @@ int outer(void) {
                 push(n);
             }
         } else {
-            if (MODE == FLAG_COMPILE) {
-                if ((dict[addr + C2FLAG].data & MASK_MODE) == FLAG_IMMEDIATE) {
+            if (MODE == F_COMPILE) {
+                if ((dict[addr + C2FLAG].data & M_MODE) == F_IMMEDIATE) {
                     // invoke the function in the dictionary
                     execute(addr);
                 } else {
@@ -646,6 +757,10 @@ void brsh(void) {
     push(a>>b);
 }
 
+void bnot(void) {
+    push(~pop());
+}
+
 void clt(void) {
     int b = pop();
     int a = pop();
@@ -674,6 +789,10 @@ void cor(void) {
     int b = pop();
     int a = pop();
     push(a||b);
+}
+
+void cnot(void) {
+    push(!pop());
 }
 
 int isaligned(int n) {
@@ -708,6 +827,14 @@ void dots(void) {
     printf("<%d(%d)> ", sp+1, BASE);
     for (i=0; i<=sp; i++) {
         dot(stack[i], 0, 1);
+    }
+}
+
+void dotr(void) {
+    int i;
+    printf("<%d(%d)> ", rs+1, BASE);
+    for (i=0; i<=rs; i++) {
+        dot(rstack[i], 0, 1);
     }
 }
 
@@ -747,7 +874,7 @@ void cdump(char *a, int len) {
     for (i=0; i<len; i++) {
         char c = a[i];
         if (n == 0) {
-            printf("%04x ", i);
+            printf("%08x ", i);
         }
         if (i % 8 == 0) printf(" ");
         printf("%02x ", a[i]);
@@ -777,29 +904,43 @@ void u4_name(void) {
 }
 
 void compile(void) {
-    MODE = FLAG_COMPILE;
+    dict[dict[HEAD_OFF].data + L2FLAG].data &= (~F_IMMEDIATE);
+    //MODE = F_COMPILE;
 }
 
 void colon(void) {
-    if (MODE == FLAG_COMPILE) return;
+    if (MODE == F_COMPILE) return;
     u4_create();
     comma((int)docolon);
-    compile();
+    MODE = F_COMPILE;
 }
 
 void immediate(void) {
-    MODE = FLAG_IMMEDIATE;
+    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_IMMEDIATE;
+    //MODE = F_IMMEDIATE;
+}
+
+void hide(void) {
+    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_HIDDEN;
+}
+
+void show(void) {
+    dict[dict[HEAD_OFF].data + L2FLAG].data &= (~F_HIDDEN);
 }
 
 void semi(void) {
-    if (MODE == FLAG_IMMEDIATE) return;
+    if (MODE == F_IMMEDIATE) return;
     comma(NEXT);
-    immediate();
+    MODE = F_IMMEDIATE;
 }
 
 void emit(void) {
     putchar(pop());
     fflush(stdout);
+}
+
+void here(void) {
+    push(HERE);
 }
 
 bulk_t vocab[] = {
@@ -816,10 +957,11 @@ bulk_t vocab[] = {
     {"bye",      bye},
     {"pushlit",  pushlit},
     {"branch",   branch},
-    {"?branch",  branchzero},
+    {"0branch",  zerobranch},
     {"execute",  u4_execute},
     {"docolon",  docolon},
     {"create",   u4_create},
+    {"here",     here},
     {",",        u4_comma},
     {".",        u4_dot},
     {"cr",       cr},
@@ -842,27 +984,33 @@ bulk_t vocab[] = {
     {"^",        bxor},
     {"<<",       blsh},
     {">>",       brsh},
+    {"~",        bnot},
     //
     {"&&",       cand},
     {"||",       cor},
     {"<",        clt},
     {">",        cgt},
     {"==",       ceq},
+    {"not",      cnot},
     //
     {".s",       dots},
+    {".r",       dotr},
     {"decimal",  decimal},
     {"hex",      hex},
     {"binary",   binary},
     {"see",      u4_see},
+    {"(see)",    u4__see},
     {"allot",    allot},
     {"callot",   callot},
     {"cdump",    u4_cdump},
     {"$name",    u4_name},
     {"cr",       cr},
-    {"immediate", immediate},
-    {"compile",   compile},
+    //{"immediate", immediate},
+    //{";",         semi},
+    //{"compile",   compile},
     {":",         colon},
-    {";",         semi},
+    {"hide",      hide},
+    {"show",      show},
     {"emit",      emit},
     // ****
     {"forget",   u4_forget}, // place here to impede forgetting previous words
@@ -883,27 +1031,39 @@ void makevar(char *name, int n) {
 
 void u4_init(void) {
     bulk_t *bulk = vocab;
-    int n;
     sp = -1;
     rs = -1;
 
     reg(cold);
 
     makevar("base",    BASE_OFF);
-    makevar("running", LOOP_OFF);
-    makevar("here",    HERE_OFF);
-    makevar("head",    HEAD_OFF);
-    makevar("name",    NAME_OFF);
-    makevar("ip",      VMIP_OFF);
     makevar("cols",    COLS_OFF);
-    makevar("mode",    MODE_OFF);
+    makevar("prompt",  PMPT_OFF);
+#if 0
+    makevar("(running)", LOOP_OFF);
+    makevar("(here)",    HERE_OFF);
+    makevar("(head)",    HEAD_OFF);
+    makevar("(name)",    NAME_OFF);
+    makevar("(ip)",      VMIP_OFF);
+    makevar("(mode)",    MODE_OFF);
+#endif
+
+    makevar("F_IMMEDIATE", F_IMMEDIATE);
+    makevar("F_HIDDEN",    F_HIDDEN);
 
     while (bulk->name != NULL) {
         makecode(bulk->name, bulk->code);
         bulk++;
     }
 
-#if 1
+    makecode("compile", compile);
+    immediate();
+    makecode("immediate", immediate);
+    immediate();
+    makecode(";", semi);
+    immediate();
+
+#if 0
     // example
     create("hhg");
     comma((int)docolon);
@@ -912,15 +1072,7 @@ void u4_init(void) {
     comma(tick("."));
     comma(NEXT);
 #endif
-
-    n = tick(";");
-    if (n >= 0) {
-        dict[n + C2FLAG].data |= FLAG_IMMEDIATE;
-    } else {
-        printf("something went wrong. contact joe\n");
-    }
-
-    MODE = FLAG_IMMEDIATE;
+    cold();
 }
 
 void u4_start(void) {
@@ -933,8 +1085,6 @@ void u4_start(void) {
         mass();
     }
 }
-
-// OUTER STUFF } --------
 
 // bridge functions for umon replacement { ----
 
@@ -957,4 +1107,14 @@ int main(int argc, char *argv[]) {
     u4_start();
     return 0;
 }
+#endif
+
+
+#if 0
+
+ _ _  _ _  _ _  _ _ 
+| | || | || | || | |
+\___|\___|\___|\___|
+
+
 #endif
