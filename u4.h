@@ -48,13 +48,15 @@ void makevar(char *name, int n);
 void u4_init(void);
 void u4_start(void);
 
-#define F_IMMEDIATE (1<<0)
-#define M_MODE      (F_IMMEDIATE)
-#define F_USEMODE   (~F_IMMEDIATE)
-#define F_COMPILE   (0)
+#define F_IMDT (1<<0)
+#define F_HIDE (1<<1)
+#define F_PRIM (1<<2)
 
-#define F_HIDDEN    (1<<1)
-#define M_HIDE      (F_HIDDEN)
-#define F_VISIBLE   (~F_HIDDEN)
+#define M_MODE (F_IMDT)
+#define F_CURR (~F_IMDT)
+#define F_COMP (0)
+
+#define M_HIDE (F_HIDE)
+#define F_SHOW (~F_HIDE)
 
 #endif

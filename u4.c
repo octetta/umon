@@ -8,15 +8,15 @@
 
 /*
         ___ 
- _   __/   |   ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
-| | | | /| |_  http://octetta.com
-| |_| |__   _| u4(tm) A C-based Forth-inspired ball of code.
-|__/|_|  |_|tm (c) 1996-2018 joseph.stewart@gmail.com
+ _   __/   |    ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
+| | | | /| |_   http://octetta.com
+| |_| |__   _|  u4(tm) A C-based Forth-inspired ball of code.
+|__/|_|  |_|tm  (c) 1996-2018 joseph.stewart@gmail.com
  
 In it's current form, this is used by:
 
  _   _  __  __  ___  _  __
-| | | |/, |/, |/ _ \| |/, |
+| | | |/_ |/_ |/ _ \| |/_ |
 | |_| | | | | | |_| | | | |
 |__/|_| |_| |_|\___/|_| |_| (umon)
 
@@ -184,11 +184,11 @@ cell_t dict[DMAX] = {
     [VMIP_OFF] = {.data = 0},        // instruction pointer           |  |
     [COLS_OFF] = {.data = 80},       // terminal column width         |  |
     [PMPT_OFF] = {.data = sizeof(_U4_0)-1}, // interpreter prompt     |  |
-    [MODE_OFF] = {.data = F_IMMEDIATE}, // current interpret mode     |  |
+    [MODE_OFF] = {.data = F_IMDT},   // current interpret mode        |  |
     // first "real" dictionary entry (hard-coded)                     |  |
     [LINK0] = {.link = NONE},        // <-----------------------------+  |
     [NAME0] = {.name = 0},           // -----------+                     |
-    [FLAG0] = {.flag = F_HIDDEN}, //               |                     |
+    [FLAG0] = {.flag = F_HIDE | F_PRIM}, //        |                     |
     [CODE0] = {.code = cold},        // --------+  |                     |
     [FREE0 ... DMAX-1] = {.data = NEXT}, // <---|--|-- (FREE0) ----------+
 };                                   //         |  |
@@ -266,26 +266,6 @@ void u4_dot(void) {
 
 // }
 
-// This is a weak but light-weight barrier against trying to jump into
-// code that isn't a c-function. when a function is registered, its
-// address is (possibly) added to the associated hi/lo boundaries of
-// where functions are "supposed" to live. I've not done any research
-// or testing to see how this performs on any place other than linux
-// osx or rtems though, and I suspect trouble with functions contained
-// in shared libraries
-
-void *reg_lo = (void *)0xffffffff;
-void *reg_hi = (void *)0;
-void reg(void *code) {
-    if (code < reg_lo) reg_lo = code;
-    if (code > reg_hi) reg_hi = code;
-}
-
-int valid(void *code) {
-    if (code >= reg_lo && code <= reg_hi) return 1;
-    return 0;
-}
-
 void pushlit(void) {
     VMIP++;
     push(dict[VMIP].data);
@@ -307,6 +287,21 @@ void zerobranch(void) {
     }
 }
 
+// offsets from LINK to field
+#define L2LINK (0)
+#define L2NAME (1)
+#define L2FLAG (2)
+#define L2CODE (3)
+#define L2DATA (4)
+
+// offsets from CODE to field
+#define C2LINK (-3)
+#define C2NAME (-2)
+#define C2FLAG (-1)
+#define C2CODE (0)
+#define C2DATA (1)
+
+
 // Use the provided index that points to a function and call it as a C-fn.
 void execute(int xt) {
     printf("execute(%d)\n", xt);
@@ -315,9 +310,9 @@ void execute(int xt) {
         printf("invalid xt\n");
         return;
     }
-    VMIP = xt;
-    void (*code)(void) = dict[VMIP].code;
-    if (valid(code)) {
+    if (dict[xt + C2FLAG].data & F_PRIM) {
+        VMIP = xt;
+        void (*code)(void) = dict[VMIP].code;
         code();
     } else printf("invalid code\n");
 }
@@ -331,6 +326,7 @@ void u4_execute(void) {
 void docolon(void) {
     // VMIP contains XT for me followed by the current list of tokens
     int IP = VMIP;
+    printf("when starting docolon, VMIP = %d\n", VMIP);
     while (1) {
         IP++;
         rpush(IP);
@@ -339,7 +335,8 @@ void docolon(void) {
         if (dict[IP].data == NEXT) break;
         execute(dict[IP].data);
     }
-    IP = rpop();
+    VMIP = rpop();
+    printf("when starting docolon, VMIP = %d\n", VMIP);
 }
 
 void __docolon(void) {
@@ -420,33 +417,20 @@ void walk(int start, int (*fn)(int, int *, void *), int *e, void *arg) {
     }
 }
 
-// offsets from LINK to field
-#define L2LINK (0)
-#define L2NAME (1)
-#define L2FLAG (2)
-#define L2CODE (3)
-#define L2DATA (4)
-
-// offsets from CODE to field
-#define C2LINK (-3)
-#define C2NAME (-2)
-#define C2FLAG (-1)
-#define C2CODE (0)
-#define C2DATA (1)
-
 char show_str[80];
 char *show_flags(int n) {
     show_str[0] = '\0';
-    if (n & F_IMMEDIATE) { strcat(show_str, " IMMEDIATE"); } else { strcat(show_str, " USEMODE"); }
-    if (n & F_HIDDEN) { strcat(show_str, " HIDDEN"); } else { strcat(show_str, " VISIBLE"); }
+    if (n & F_IMDT) { strcat(show_str, " IMDT"); } else { strcat(show_str, " CURR"); }
+    if (n & F_HIDE) { strcat(show_str, " HIDE"); } else { strcat(show_str, " SHOW"); }
+    if (n & F_PRIM) { strcat(show_str, " PRIM"); }
     return show_str;
 }
 
 void see_header(int link) {
-    printf("LINK [%d] %d\n",     link + L2LINK, dict[link + L2LINK].link);
-    printf("NAME [%d] $%d=%s\n", link + L2NAME, dict[link + L2NAME].name, &name[dict[link+L2NAME].name]);
-    printf("FLAG [%d] (%d)%s\n", link + L2FLAG, dict[link + L2FLAG].flag, show_flags(dict[link + L2FLAG].flag));
-    printf("CODE [%d] %d\n",     link + L2CODE, dict[link + L2CODE].data);
+    printf("LINK [%d] %d\n",      link + L2LINK, dict[link + L2LINK].link);
+    printf("NAME [%d] $%d{%s}\n", link + L2NAME, dict[link + L2NAME].name, &name[dict[link+L2NAME].name]);
+    printf("FLAG [%d] (%d)%s\n",  link + L2FLAG, dict[link + L2FLAG].flag, show_flags(dict[link + L2FLAG].flag));
+    printf("CODE [%d] %d\n",      link + L2CODE, dict[link + L2CODE].data);
 }
 
 void u4__see(void) {
@@ -472,7 +456,7 @@ void dump(void) {
 
 int walk_words(int link, int *ret, void *arg) {
     int *pwords_arg = (int *)arg;
-    if ((dict[link + L2FLAG].data & M_HIDE) == F_HIDDEN) return 0;
+    if ((dict[link + L2FLAG].data & M_HIDE) == F_HIDE) return 0;
     char *str = &name[dict[link + L2NAME].name];
     int n = strlen(str) + 1;
     if ((n + *pwords_arg) > COLS) {
@@ -643,7 +627,7 @@ int outer(void) {
                 //printf("? out of range ");
                 n = UINT32_MAX;
             }
-            if (MODE == F_COMPILE) {
+            if (MODE == F_COMP) {
                 // stuff token and number to dictionary
                 comma(tick("pushlit"));
                 comma(n);
@@ -651,8 +635,8 @@ int outer(void) {
                 push(n);
             }
         } else {
-            if (MODE == F_COMPILE) {
-                if ((dict[addr + C2FLAG].data & M_MODE) == F_IMMEDIATE) {
+            if (MODE == F_COMP) {
+                if ((dict[addr + C2FLAG].data & M_MODE) == F_IMDT) {
                     // invoke the function in the dictionary
                     execute(addr);
                 } else {
@@ -904,34 +888,34 @@ void u4_name(void) {
 }
 
 void compile(void) {
-    dict[dict[HEAD_OFF].data + L2FLAG].data &= (~F_IMMEDIATE);
-    //MODE = F_COMPILE;
+    dict[dict[HEAD_OFF].data + L2FLAG].data &= (~F_IMDT);
+    //MODE = F_COMP;
 }
 
 void colon(void) {
-    if (MODE == F_COMPILE) return;
+    if (MODE == F_COMP) return;
     u4_create();
     comma((int)docolon);
-    MODE = F_COMPILE;
+    MODE = F_COMP;
 }
 
 void immediate(void) {
-    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_IMMEDIATE;
-    //MODE = F_IMMEDIATE;
+    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_IMDT;
+    //MODE = F_IMDT;
 }
 
 void hide(void) {
-    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_HIDDEN;
+    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_HIDE;
 }
 
 void show(void) {
-    dict[dict[HEAD_OFF].data + L2FLAG].data &= (~F_HIDDEN);
+    dict[dict[HEAD_OFF].data + L2FLAG].data &= (~F_HIDE);
 }
 
 void semi(void) {
-    if (MODE == F_IMMEDIATE) return;
+    if (MODE == F_IMDT) return;
     comma(NEXT);
-    MODE = F_IMMEDIATE;
+    MODE = F_IMDT;
 }
 
 void emit(void) {
@@ -941,6 +925,14 @@ void emit(void) {
 
 void here(void) {
     push(HERE);
+}
+
+void c2l(void) {
+    stack[sp] += C2LINK;
+}
+
+void l2c(void) {
+    stack[sp] += L2CODE;
 }
 
 bulk_t vocab[] = {
@@ -1012,14 +1004,20 @@ bulk_t vocab[] = {
     {"hide",      hide},
     {"show",      show},
     {"emit",      emit},
+    {">link",     c2l},
+    {">code",     l2c},
     // ****
     {"forget",   u4_forget}, // place here to impede forgetting previous words
     {NULL,       NULL}
 };
 
+void primitive(void) {
+    dict[dict[HEAD_OFF].data + L2FLAG].data |= F_PRIM;
+}
+
 void makecode(char *name, void (*code)(void)) {
-    reg(code);
     create(name);
+    primitive();
     comma((int)code);
 }
 
@@ -1034,8 +1032,6 @@ void u4_init(void) {
     sp = -1;
     rs = -1;
 
-    reg(cold);
-
     makevar("base",    BASE_OFF);
     makevar("cols",    COLS_OFF);
     makevar("prompt",  PMPT_OFF);
@@ -1048,8 +1044,8 @@ void u4_init(void) {
     makevar("(mode)",    MODE_OFF);
 #endif
 
-    makevar("F_IMMEDIATE", F_IMMEDIATE);
-    makevar("F_HIDDEN",    F_HIDDEN);
+    makevar("F_IMDT", F_IMDT);
+    makevar("F_HIDE", F_HIDE);
 
     while (bulk->name != NULL) {
         makecode(bulk->name, bulk->code);
@@ -1094,9 +1090,7 @@ void start_umon(void) {
 }
 
 void native(char *name, void (*fn)(void)) {
-    reg(fn);
-    create(name);
-    comma((int)fn);
+    makecode(name, fn);
 }
 
 // } ----
