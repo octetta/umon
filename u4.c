@@ -13,7 +13,7 @@
 | |_| |__   _|  u4(tm) A C-based Forth-inspired ball of code.
 |__/|_|  |_|tm  (c) 1996-2018 joseph.stewart@gmail.com
  
-In it's current form, this is used by:
+In its current form, this is used by:
 
  _   _  __  __  ___  _  __
 | | | |/_ |/_ |/ _ \| |/_ |
