@@ -5,22 +5,20 @@
 #include <string.h>
 #include <sys/errno.h>
 
-#define debug printf
-
 /*
         ___
- _   __/   |    ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
-| | | | /| |_   http://octetta.com
-| |_| |__   _|  u4(tm) A C-based Forth-inspired ball of code.
+,_  ,__/   |    ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
+| | | | /|_|_   http://octetta.com
+| |_| |__:_:_|  u4(tm) A C-based Forth-inspired ball of code.
 |__/|_|  |_|tm  (c) 1996-2018 joseph.stewart@gmail.com
 
 */
 
 char *splash =
 "         ___    \n"
-"  _   __/   |   \n"
-" | | | | /| |_  \n"
-" | |_| |__   _| \n"
+" ,_  ,__/   |   \n"
+" | | | | /|_|_  \n"
+" | |_| |__:_:_| \n"
 " |__/|_|  |_|tm \n";
 
 #define DATA long
@@ -30,10 +28,11 @@ typedef union {
     DATA data;
 } cell_t;
 
-#define DICT_MAX (4096)
-#define NAME_MAX (1024)
+#define DICT_MAX (16384)
+#define NAME_MAX (4096)
 #define LIFO_MAX (256)
 #define RSTK_MAX (256)
+#define TOKB_MAX (256)
 
 void u4_printf(const char *format, ...) {
     va_list args;
@@ -43,10 +42,14 @@ void u4_printf(const char *format, ...) {
 }
 
 void one(void) {
-    u4_printf("one\n");
+    u4_printf("#one#\n");
 }
 
-// NAME LINK FLAG BODY
+void two(void) {
+    u4_printf("#two#\n");
+}
+
+// NAME LINK TYPE DATA
 
 #define QUIT (-2)
 #define EXIT (-1)
@@ -64,15 +67,17 @@ void one(void) {
 #define HERE_OFF (4) // free dictionary entry
 #define HEAD_OFF (5) // link to last work in dictionary
 #define NAME_OFF (6) // free string index
-#define COLS_OFF (7) // column wrap number
-#define PMPT_OFF (8) // offset of prompt in string table
-#define MODE_OFF (9) // interpret / compile mode
+#define TOKB_OFF (7) // token buffer index
+#define COLS_OFF (8) // column wrap number
+#define PMPT_OFF (9) // offset of prompt in string table
+#define MODE_OFF (10) // interpret / compile mode
+#define DBUG_OFF (11) // debug enable flag
 
-#define WORD_OFF (MODE_OFF + 1)
+#define WORD_OFF (DBUG_OFF + 1)
 
 #define NAME0 (WORD_OFF + 0)
 #define LINK0 (WORD_OFF + 1)
-#define FLAG0 (WORD_OFF + 2)
+#define TYPE0 (WORD_OFF + 2)
 #define FUNC0 (WORD_OFF + 3)
 #define FREE0 (WORD_OFF + 4)
 
@@ -87,19 +92,23 @@ void one(void) {
 #define LOOP (dict[LOOP_OFF].data)
 #define HERE (dict[HERE_OFF].data)
 #define NAME (dict[NAME_OFF].data)
+#define TOKB (dict[TOKB_OFF].data)
 #define COLS (dict[COLS_OFF].data)
 #define LIFO (dict[LIFO_OFF].data)
 #define RSTK (dict[RSTK_OFF].data)
 #define HEAD (dict[HEAD_OFF].data)
 #define PMPT (dict[PMPT_OFF].data)
 #define MODE (dict[MODE_OFF].data)
+#define DBUG (dict[DBUG_OFF].data)
 
 #define F_IMME (1<<0)
 #define F_COMP (1<<1)
 #define F_HIDE (1<<2)
 #define F_PRIM (1<<3)
-#define F_LIST (1<<4)
-#define F_BRAC (1<<5)
+#define F_VARA (1<<4)
+#define F_CNST (1<<5)
+#define F_LIST (1<<6)
+#define F_BRAC (1<<7)
 
 #define F_SHOW (~F_HIDE)
 
@@ -112,20 +121,32 @@ cell_t dict[DICT_MAX] = {
     [HERE_OFF] = {.data = FREE0},    // free dictionary index -----------+
     [HEAD_OFF] = {.data = LINK0},    // index to head of dictionary --+  |
     [NAME_OFF] = {.data = NLEN0},    // free string index             |  |
+    [TOKB_OFF] = {.data = 0},        // token input buffer index      |  |
     [COLS_OFF] = {.data = 80},       // terminal column width         |  |
     [PMPT_OFF] = {.data = sizeof(COLD0)-1}, // interpreter prompt     |  |
     [MODE_OFF] = {.data = F_IMME},          // current interpret mode |  |
+    [DBUG_OFF] = {.data = 0},               // current debug mode     |  |
     // first "real" dictionary entry (hard-coded)                     |  |
     [NAME0] = {.data = 0},           // -----------+                  |  |
     [LINK0] = {.data = EXIT},        // <----------|------------------+  |
-    [FLAG0] = {.data = F_PRIM | F_HIDE}, //        |                     |
+    [TYPE0] = {.data = F_PRIM | F_HIDE}, //        |                     |
     [FUNC0] = {.func = cold},        // --------+  |                     |
     [FREE0] = {.data = EXIT},        // <-------|--|---------------------+
-};                                   //         |  |
-char name[NAME_MAX] = TEXT0; // <---------------|--+
+};                                   //         |  |   
+char name[NAME_MAX] = TEXT0; // <---------------|--+   
+char tokb[TOKB_MAX] = ""; // token input buffer |
 //                                              |
 void cold(void) { // <--------------------------+
     u4_printf("%s\n", splash);
+}
+
+void debug(const char *format, ...) {
+    if (DBUG) {
+        va_list args;
+        va_start(args, format);
+        vprintf(format, args);
+        va_end(args);
+    }
 }
 
 char name[NAME_MAX];
@@ -139,7 +160,7 @@ void push(DATA n) {
 
 DATA pop(void) {
     DATA n = lifo[LIFO].data;
-    if (LIFO >= 0) LIFO--;
+    if (LIFO > 0) LIFO--;
     return n;
 }
 
@@ -179,7 +200,7 @@ void u4_rpush(void) {
 
 DATA rpop(void) {
     DATA n = rstk[RSTK].data;
-    if (RSTK >= 0) RSTK--;
+    if (RSTK > 0) RSTK--;
     return n;
 }
 
@@ -364,22 +385,34 @@ static cell_t prim_limit[2] = {
 
 #endif
 
-DATA prim(DATA addr) {
+DATA doprim(DATA addr) {
     dict[addr].func();
     return addr + 1;
+}
+
+char *type2name(DATA addr) {
+    return &name[dict[addr - 2].data];
 }
 
 DATA execute(DATA addr) {
     DATA code = fetch(addr);
     if (code & F_PRIM) {
-        prim(addr+1);
+        debug("PRIM @ %ld (%s)\n", addr, type2name(addr));
+        doprim(addr+1);
         return PRIM;
     }
     if (code & F_LIST) {
+        debug("LIST @ %ld\n", addr);
         dolist(addr+1);
         return LIST;
     }
+    if (code & F_VARA) {
+        debug("PUSH @ %ld\n", addr);
+        push(fetch(addr+1));
+        return PRIM;
+    }
     if (code == EXIT) {
+        debug("EXIT @ %ld\n", addr);
         return EXIT;
     }
     return QUIT;
@@ -390,35 +423,56 @@ void u4_execute(void) {
 }
 
 DATA dolist(DATA addr) {
-    while (1) {
+    while (addr != EXIT) {
         DATA code = fetch(addr);
         DATA target;
         switch (code) {
             default:
+                debug("DATA @ %ld code=%ld\n", addr, code);
                 switch (execute(code)) {
                     case QUIT:
-                        goto done;
+                        debug("QUIT\n");
+                        addr = EXIT;
                     default:
+                        addr++;
                         break;
                 }
                 break;
             case NOOP:
+                debug("NOOP @ %ld\n", addr);
+                addr++;
                 break;
             case EXIT:
-                goto done;
+                debug("EXIT @ %ld\n", addr);
+                addr = EXIT;
                 break;
             case PUSH:
-                push(fetch(addr+1));
+                debug("PUSH @ %ld\n", addr);
                 addr++;
+                push(fetch(addr++));
                 break;
             case GOTO:
                 target = fetch(addr+1);
+                debug("GOTO @ %ld jmp %ld\n", addr, addr+1+target);
+                addr++;
                 addr += target;
                 break;
+            case COND:
+                target = fetch(addr+1);
+                DATA arg = pop();
+                debug("COND @ %ld pop()=%ld jmp %ld\n", addr, arg, addr+1+target);
+                addr++;
+                if (arg == 0) {
+                    addr += target;
+                    debug("---- =0 -> jmp %ld\n", addr);
+                } else {
+                    addr++;
+                    debug("---- !0 -> jmp %ld\n", addr);
+                }
+                break;
         }
-        addr++;
     }
-    done: return addr;
+    return addr;
 }
 
 void comma(DATA d) {
@@ -490,15 +544,15 @@ void see(char *what) {
             if (last == EXIT) last = HERE+1;
             next--;
             last--;
-            debug("\"%s\" @ dict[%ld-%ld]\n", what, next, last-1);
+            u4_printf("\"%s\" @ dict[%ld-%ld]\n", what, next, last-1);
             for (i = next; i < last; i++) {
                 switch (n) {
                     case 0: s = "NAME "; break;
                     case 1: s = "LINK "; break;
-                    case 2: s = "FLAG "; break;
+                    case 2: s = "TYPE "; break;
                     default: s = ""; break;
                 }
-                debug("[%ld] %s%ld\n", i, s, fetch(i));
+                u4_printf("[%ld] %s%ld\n", i, s, fetch(i));
                 n++;
             }
             break;
@@ -532,7 +586,7 @@ void walk(void) {
             plus = "   ";
             diag = "   ";
         }
-        u4_printf("%s [%ld] FLAG %ld\n", diag, f, fetch(f));
+        u4_printf("%s [%ld] TYPE %ld\n", diag, f, fetch(f));
         for (i=next+2; i<stop; i++) {
             u4_printf("%s [%ld] %ld\n", line, i, fetch(i));
         }
@@ -629,7 +683,7 @@ void variable(char *name) {
 
 // INNER {
 
-#define TMAX (80)
+#define TMAX (256)
 
 char tokenb[TMAX+1]; // terminal input buffer
 
@@ -696,16 +750,27 @@ void token(char *lexeme) {
     return;
 }
 
+void u4_token(void) {
+    tokb[TOKB] = '\0';
+    token(tokb);
+    if (tokb[TOKB] != '\0') push(1);
+    else push(0);
+}
+
 void u4_tick(void) {
-    token_jlexeme[0] = '\0';
-    token(token_jlexeme);
-    if (token_jlexeme[0]) push(tick(token_jlexeme));
+    u4_token();
+    if (pop()) push(tick(tokb));
 }
 
 void u4_create(void) {
-    token_jlexeme[0] = '\0';
-    token(token_jlexeme);
-    if (token_jlexeme[0]) create(token_jlexeme);
+    u4_token();
+    if (pop()) {
+        create(tokb);
+#if 1
+        comma(F_VARA);
+        comma(HERE+1);
+#endif
+    }
 }
 
 void u4_see(void) {
@@ -722,9 +787,12 @@ void u4_forget(void) {
 
 void colon(void) {
     if (MODE == F_COMP) return;
-    u4_create();
-    comma(F_LIST);
-    MODE = F_COMP;
+    u4_token();
+    if (pop()) {
+        create(tokb);
+        comma(F_LIST);
+        MODE = F_COMP;
+    }
 }
 
 void openbracket(void) {
@@ -760,7 +828,7 @@ typedef struct {
      +------+
  +-->| LINK |---> index of previous link in dictionary array
  |   +------+
- |   | FLAG |---> F_LIST
+ |   | TYPE |---> F_LIST
  |   +------+
  |   | DATA |---+ index to "." in dictionary array
  |   +------+   |
@@ -774,9 +842,9 @@ typedef struct {
  |   +------+   |
  +---| LINK |   | 
      +------+   v
-     | FLAG |---+---> F_PRIM
+     | TYPE |---+---> F_PRIM
      +------+    
-     | CODE |-------> function pointer to c-code of "."
+     | DATA |-------> function pointer to c-code of "."
      +------+
 
 */
@@ -914,6 +982,14 @@ void dots(void) {
     }
 }
 
+void dotr(void) {
+    DATA i;
+    u4_printf("<%ld(%ld)> ", RSTK, BASE);
+    for (i=1; i<=RSTK; i++) {
+        dot(rstk[i].data, 0, 1);
+    }
+}
+
 // }
 
 #define DLEN 16
@@ -995,13 +1071,33 @@ void name_push(void) {
     npush((char)c);
 }
 
+void tron(void) {
+    DBUG = 1;
+}
+
+void troff(void) {
+    DBUG = 0;
+}
+
+void u4_stats(void) {
+    u4_printf("used\n");
+    u4_printf("dict %ld of %ld\n", HERE, DICT_MAX);
+    u4_printf("name %ld of %ld\n", NAME, NAME_MAX);
+    u4_printf("lifo %ld of %ld\n", LIFO, LIFO_MAX);
+    u4_printf("rstk %ld of %ld\n", RSTK, RSTK_MAX);
+}
+
 bulk_t vocab[] = {
+    //
+    {"stats",     u4_stats},
+    {"tron",      tron},
+    {"troff",     troff},
     //
     {",",         u4_comma},
     {"immediate", immediate},
     {"bye",       bye},
     {"'",         u4_tick},
-    {"execute",   u4_execute},
+    //{"execute",   u4_execute},
     {"see",       u4_see},
     {"forget",    u4_forget},
     //
@@ -1038,6 +1134,7 @@ bulk_t vocab[] = {
     {"emit",      emit},
     {".",         u4_dot},
     {".s",        dots},
+    {".r",        dotr},
     {"$name",     name_addr},
     {"$$",        name_base},
     {"$@",        name_fetch},
@@ -1066,6 +1163,7 @@ bulk_t vocab[] = {
 void u4_init(void) {
     bulk_t *bulk = vocab;
 
+    u4_prim("execute", u4_execute);
     u4_prim(";", semi); immediate();
     u4_prim("]", closebracket); immediate();
 
@@ -1094,6 +1192,7 @@ int main(int argc, char *argv[]) {
     constant("(cols)",   COLS_OFF);
     constant("(prompt)", PMPT_OFF);
     constant("(mode)",   MODE_OFF);
+    constant("(dbug)",   DBUG_OFF);
 
     constant("F_IMME", F_IMME);
     constant("F_COMP", F_COMP);
@@ -1118,8 +1217,8 @@ int main(int argc, char *argv[]) {
     comma(tick("emit"));
     comma(EXIT);
 
-#if 1
     u4_prim("p0", one);
+    u4_prim("p1", two);
 
     create("t0");
     comma(F_LIST);
@@ -1128,16 +1227,20 @@ int main(int argc, char *argv[]) {
     comma(PUSH);
     comma(113);
     comma(GOTO);
-    comma(5);
-    comma(NOOP);
-    comma(NOOP);
-    comma(NOOP);
-    comma(NOOP);
-    comma(NOOP);
-    comma(NOOP);
+    comma(1);
     comma(tick("p0"));
     comma(EXIT);
-#endif
+    
+    create("t1");
+    comma(F_LIST);
+    comma(COND);
+    comma(2);
+    comma(tick("p0"));
+    comma(GOTO);
+    comma(3);
+    comma(NOOP);
+    comma(tick("p1"));
+    comma(EXIT);
 
     u4_start();
 
