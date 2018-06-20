@@ -5,21 +5,19 @@
 #include <string.h>
 #include <sys/errno.h>
 
-/*
-        ___
-,_  ,__/   |    ( -- ) : u4 117 emit 52 emit 33 emit cr ; u4
-| | | | /|_|_   http://octetta.com
-| |_| |__:_:_|  u4(tm) A C-based Forth-inspired ball of code.
-|__/|_|  |_|tm  (c) 1996-2018 joseph.stewart@gmail.com
-
-*/
-
-char *splash =
+static char *splash =
 "         ___    \n"
 " ,_  ,__/   |   \n"
 " | | | | /|_|_  \n"
 " | |_| |__:_:_| \n"
 " |__/|_|  |_|tm \n";
+
+/*
+: u4 117 emit 52 emit 33 emit cr ; u4
+http://octetta.com
+u4(tm) A C-based Forth-inspired ball of code.
+(c) 1996-2018 joseph.stewart@gmail.com
+*/
 
 #define DATA long
 
@@ -105,10 +103,9 @@ void two(void) {
 #define F_COMP (1<<1)
 #define F_HIDE (1<<2)
 #define F_PRIM (1<<3)
-#define F_VARA (1<<4)
-#define F_CNST (1<<5)
-#define F_LIST (1<<6)
-#define F_BRAC (1<<7)
+#define F_PUSH (1<<4)
+#define F_LIST (1<<5)
+#define F_BRAC (1<<6)
 
 #define F_SHOW (~F_HIDE)
 
@@ -397,7 +394,7 @@ char *type2name(DATA addr) {
 DATA execute(DATA addr) {
     DATA code = fetch(addr);
     if (code & F_PRIM) {
-        debug("PRIM @ %ld (%s)\n", addr, type2name(addr));
+        debug("PRIM @ %ld \"%s\"\n", addr, type2name(addr));
         doprim(addr+1);
         return PRIM;
     }
@@ -406,7 +403,7 @@ DATA execute(DATA addr) {
         dolist(addr+1);
         return LIST;
     }
-    if (code & F_VARA) {
+    if (code & F_PUSH) {
         debug("PUSH @ %ld\n", addr);
         push(fetch(addr+1));
         return PRIM;
@@ -667,10 +664,8 @@ void u4_prim(char *name, void (*func)(void)) {
 
 void constant(char *name, DATA data) {
     create(name);
-    comma(F_LIST);
-    comma(PUSH);
+    comma(F_PUSH);
     comma(data);
-    comma(EXIT);
 }
 
 void variable(char *name) {
@@ -717,10 +712,6 @@ unsigned char islexeme(char c) {
     return 1;
 }
 
-char token_lexeme[TMAX+1];
-char token_ilexeme[TMAX+1];
-char token_jlexeme[TMAX+1];
-
 /* todo make token accept a buffer addr and len */
 DATA tokenp = 0;
 void token(char *lexeme) {
@@ -766,23 +757,24 @@ void u4_create(void) {
     u4_token();
     if (pop()) {
         create(tokb);
-#if 1
-        comma(F_VARA);
+        comma(F_PUSH);
         comma(HERE+1);
-#endif
     }
 }
 
+void u4_constant(void) {
+    u4_token();
+    if (pop()) constant(tokb, pop());
+}
+
 void u4_see(void) {
-    token_jlexeme[0] = '\0';
-    token(token_jlexeme);
-    if (token_jlexeme[0]) see(token_jlexeme);
+    u4_token();
+    if (pop()) see(tokb);
 }
 
 void u4_forget(void) {
-    token_jlexeme[0] = '\0';
-    token(token_jlexeme);
-    if (token_jlexeme[0]) forget(token_jlexeme);
+    u4_token();
+    if (pop()) forget(tokb);
 }
 
 void colon(void) {
@@ -856,6 +848,7 @@ typedef struct {
 
 DATA outer(void) {
     DATA addr;
+    char token_ilexeme[TMAX+1];
     while (LOOP) {
         token(token_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
@@ -1149,6 +1142,7 @@ bulk_t vocab[] = {
     {":",         colon},
     {"[",         openbracket},
     {"create",    u4_create},
+    {"constant",  u4_constant},
     {"here",      here},
     {"decimal",   decimal},
     {"binary",    binary},
@@ -1198,6 +1192,7 @@ int main(int argc, char *argv[]) {
     constant("F_COMP", F_COMP);
     constant("F_HIDE", F_HIDE);
     constant("F_PRIM", F_PRIM);
+    constant("F_PUSH", F_PRIM);
     constant("F_LIST", F_LIST);
     constant("F_BRAC", F_BRAC);
     
