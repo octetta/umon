@@ -32,6 +32,55 @@ typedef union {
 #define RSTK_MAX (256)
 #define TOKB_MAX (256)
 
+#if 1
+#include <termios.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/time.h>
+static struct termios key_old, key_new;
+static void key_reset(void) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &key_old);
+}
+static void key_use(void) {
+    static char first = 1;
+    if (first) {
+        tcgetattr(STDIN_FILENO, &key_old);
+        tcgetattr(STDIN_FILENO, &key_new);
+        key_new.c_lflag &= ~(ICANON | ECHO);
+        key_new.c_cc[VMIN] = 1;
+        key_new.c_cc[VTIME] = 0;
+        first = 0;
+        atexit(key_reset);
+    }
+    tcsetattr(STDIN_FILENO, TCSANOW, &key_new);
+}
+static int key_get(void) {
+    int c;
+    if (!isatty(STDIN_FILENO)) return getchar();
+    key_use();
+    c = getchar();
+    key_reset();
+    return c;
+}
+static int key_get_timeout(int timeout) {
+    int c = -1;
+    struct timeval tv;
+    fd_set fs;
+    if (!isatty(STDIN_FILENO)) return getchar();
+    key_use();
+    tv.tv_usec = 0;
+    tv.tv_sec = timeout;
+    FD_ZERO(&fs);
+    FD_SET(STDIN_FILENO, &fs);
+    select(STDIN_FILENO + 1, &fs, NULL, NULL, &tv);
+    if (FD_ISSET(STDIN_FILENO, &fs)) {
+        c = getchar();
+    }
+    key_reset();
+    return c;
+}
+#endif
+
 void u4_printf(const char *format, ...) {
     va_list args;
     va_start(args, format);
@@ -394,22 +443,22 @@ char *type2name(DATA addr) {
 DATA execute(DATA addr) {
     DATA code = fetch(addr);
     if (code & F_PRIM) {
-        debug("PRIM @ %ld \"%s\"\n", addr, type2name(addr));
+        debug("[%ld] PRIM \"%s\"\n", addr, type2name(addr));
         doprim(addr+1);
         return PRIM;
     }
     if (code & F_LIST) {
-        debug("LIST @ %ld\n", addr);
+        debug("[%ld] LIST\n", addr);
         dolist(addr+1);
         return LIST;
     }
     if (code & F_PUSH) {
-        debug("PUSH @ %ld\n", addr);
+        debug("[%ld] PUSH\n", addr);
         push(fetch(addr+1));
         return PRIM;
     }
     if (code == EXIT) {
-        debug("EXIT @ %ld\n", addr);
+        debug("[%ld] EXIT\n", addr);
         return EXIT;
     }
     return QUIT;
@@ -425,7 +474,7 @@ DATA dolist(DATA addr) {
         DATA target;
         switch (code) {
             default:
-                debug("DATA @ %ld code=%ld\n", addr, code);
+                debug("[%ld] DATA code=%ld\n", addr, code);
                 switch (execute(code)) {
                     case QUIT:
                         debug("QUIT\n");
@@ -436,28 +485,28 @@ DATA dolist(DATA addr) {
                 }
                 break;
             case NOOP:
-                debug("NOOP @ %ld\n", addr);
+                debug("[%ld] NOOP\n", addr);
                 addr++;
                 break;
             case EXIT:
-                debug("EXIT @ %ld\n", addr);
+                debug("[%ld] EXIT\n", addr);
                 addr = EXIT;
                 break;
             case PUSH:
-                debug("PUSH @ %ld\n", addr);
+                debug("[%ld] PUSH %ld\n", addr, fetch(addr+1));
                 addr++;
                 push(fetch(addr++));
                 break;
             case GOTO:
                 target = fetch(addr+1);
-                debug("GOTO @ %ld jmp %ld\n", addr, addr+1+target);
+                debug("[%ld] GOTO jmp %ld\n", addr, addr+1+target);
                 addr++;
                 addr += target;
                 break;
             case COND:
                 target = fetch(addr+1);
                 DATA arg = pop();
-                debug("COND @ %ld pop()=%ld jmp %ld\n", addr, arg, addr+1+target);
+                debug("[%ld] COND pop()=%ld jmp %ld\n", addr, arg, addr+1+target);
                 addr++;
                 if (arg == 0) {
                     addr += target;
@@ -491,7 +540,7 @@ void npush(char c) {
     NAME++;
 }
 
-void link(void) {
+void u4_link(void) {
     dict[HERE].data = HEAD;
     HEAD = HERE;
     HERE++;
@@ -626,7 +675,7 @@ void create(char *s) {
         if (c == '\0') break;
         s++;
     }
-    link();
+    u4_link();
 }
 
 void here(void) {
@@ -848,7 +897,9 @@ typedef struct {
 
 DATA outer(void) {
     DATA addr;
+    DATA base = BASE;
     char token_ilexeme[TMAX+1];
+    if (base < 2 || base > 36) base = 10;
     while (LOOP) {
         token(token_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
@@ -861,14 +912,14 @@ DATA outer(void) {
             // not found, try to interpret as a number
             char *notnumber;
             DATA n;
-            if (BASE == 10) {
+            if (base == 10) {
                 if (token_ilexeme[0] == '0') {
                     n = strtoul(token_ilexeme, &notnumber, 0);
                 } else {
                     n = strtol(token_ilexeme, &notnumber, 0);
                 }
             } else {
-                n = strtoul(token_ilexeme, &notnumber, BASE);
+                n = strtoul(token_ilexeme, &notnumber, base);
             }
             if (notnumber == token_ilexeme) {
                 u4_printf("? ");
@@ -927,7 +978,9 @@ void dot(DATA np, DATA pad, DATA gap) {
     DATA index = 0;
     DATA out = 0;
     DATA i;
-    if (np < 0 && BASE == 10) {
+    DATA base = BASE;
+    if (base < 2 || base > 36) base = 10;
+    if (np < 0 && base == 10) {
         u4_putchar('-');
         n = -n;
     }
@@ -936,8 +989,8 @@ void dot(DATA np, DATA pad, DATA gap) {
         out++;
     } else {
         while (n) {
-            number[index] = n % BASE;
-            n /= BASE;
+            number[index] = n % base;
+            n /= base;
             index++;
         }
         index--;
@@ -967,9 +1020,18 @@ void emit(void) {
     u4_putchar(pop());
 }
 
+void key(void) {
+    push(key_get());
+}
+void key_timeout(void) {
+    push(key_get_timeout(pop()));
+}
+
 void dots(void) {
     DATA i;
-    u4_printf("<%ld(%ld)> ", LIFO, BASE);
+    DATA base = BASE;
+    if (base < 2 || base > 36) base = 10;
+    u4_printf("<%ld(%ld)> ", LIFO, base);
     for (i=1; i<=LIFO; i++) {
         dot(lifo[i].data, 0, 1);
     }
@@ -1072,17 +1134,18 @@ void troff(void) {
     DBUG = 0;
 }
 
-void u4_stats(void) {
-    u4_printf("used\n");
-    u4_printf("dict %ld of %ld\n", HERE, DICT_MAX);
-    u4_printf("name %ld of %ld\n", NAME, NAME_MAX);
-    u4_printf("lifo %ld of %ld\n", LIFO, LIFO_MAX);
-    u4_printf("rstk %ld of %ld\n", RSTK, RSTK_MAX);
+void u4_vm(void) {
+    u4_printf("name cur   max   free\n");
+    u4_printf("---- ----- ----- ----\n");
+    u4_printf("dict %-5ld %-5ld %3d%%\n", HERE, DICT_MAX, HERE*100/DICT_MAX);
+    u4_printf("name %-5ld %-5ld %3d%%\n", NAME, NAME_MAX, NAME*100/NAME_MAX);
+    u4_printf("lifo %-5ld %-5ld %3d%%\n", LIFO, LIFO_MAX, LIFO*100/LIFO_MAX);
+    u4_printf("rstk %-5ld %-5ld %3d%%\n", RSTK, RSTK_MAX, RSTK*100/RSTK_MAX);
 }
 
 bulk_t vocab[] = {
     //
-    {"stats",     u4_stats},
+    {"vm",        u4_vm},
     {"tron",      tron},
     {"troff",     troff},
     //
@@ -1125,6 +1188,8 @@ bulk_t vocab[] = {
     {"not",       cnot},
     //
     {"emit",      emit},
+    {"key",       key},
+    {"kwait",     key_timeout},
     {".",         u4_dot},
     {".s",        dots},
     {".r",        dotr},
