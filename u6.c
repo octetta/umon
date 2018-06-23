@@ -20,10 +20,12 @@ u4(tm) A C-based Forth-inspired ball of code.
 */
 
 #define DATA long
+#define FNUM double
 
 typedef union {
     void (*func)(void);
     DATA data;
+    FNUM fnum;
 } cell_t;
 
 #define DICT_MAX (16384)
@@ -440,28 +442,34 @@ char *type2name(DATA addr) {
     return &name[dict[addr - 2].data];
 }
 
+#define execute_return(n) execute_depth--; debug("execute_leave(%d) depth:%ld\n", n, execute_depth); return n
+
+static DATA execute_depth = 0;
+
 DATA execute(DATA addr) {
+    execute_depth++;
     DATA code = fetch(addr);
+    debug("execute(%ld) depth:%ld\n", addr, execute_depth);
     if (code & F_PRIM) {
         debug("[%ld] PRIM \"%s\"\n", addr, type2name(addr));
         doprim(addr+1);
-        return PRIM;
+        execute_return(PRIM);
     }
     if (code & F_LIST) {
         debug("[%ld] LIST\n", addr);
         dolist(addr+1);
-        return LIST;
+        execute_return(LIST);
     }
     if (code & F_PUSH) {
         debug("[%ld] PUSH\n", addr);
         push(fetch(addr+1));
-        return PRIM;
+        execute_return(PRIM);
     }
     if (code == EXIT) {
         debug("[%ld] EXIT\n", addr);
-        return EXIT;
+        execute_return(EXIT);
     }
-    return QUIT;
+    execute_return(QUIT);
 }
 
 void u4_execute(void) {
@@ -469,6 +477,7 @@ void u4_execute(void) {
 }
 
 DATA dolist(DATA addr) {
+    debug("dolist(%ld)\n", addr);
     while (addr != EXIT) {
         DATA code = fetch(addr);
         DATA target;
@@ -899,7 +908,7 @@ DATA outer(void) {
     DATA addr;
     DATA base = BASE;
     char token_ilexeme[TMAX+1];
-    if (base < 2 || base > 36) base = 10;
+    if (base < 2 || base > 60) base = 10;
     while (LOOP) {
         token(token_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
@@ -930,9 +939,11 @@ DATA outer(void) {
             if (MODE & F_COMP) {
                 // stuff token and number to dictionary
                 if ((MODE & F_BRAC) == 0) {
+                    debug("PUSH -> [%ld]\n", HERE);
                     comma(PUSH);
                 }
                 // stuff number to dictionary
+                debug("number %ld -> [%ld]\n", n, HERE);
                 comma(n);
             } else {
                 push(n);
@@ -945,6 +956,7 @@ DATA outer(void) {
                     execute(addr);
                 } else {
                     // stuff token to dictionary
+                    debug("token %ld -> [%ld]\n", addr, HERE);
                     comma(addr);
                 }
             } else {
@@ -963,8 +975,8 @@ DATA outer(void) {
 
 // STUFF {
 
-// Magic Forth-ish number printing function. Supports output base >= 2 and <= 36
-char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+// Magic Forth-ish number printing function. Supports output base >= 2 and <= 60
+char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz.-:+=^!/*?&<>()[]{}@%$#~";
 
 #define DOT_SPACE (sizeof(DATA)*8)
 
@@ -979,7 +991,7 @@ void dot(DATA np, DATA pad, DATA gap) {
     DATA out = 0;
     DATA i;
     DATA base = BASE;
-    if (base < 2 || base > 36) base = 10;
+    if (base < 2 || base > 60) base = 10;
     if (np < 0 && base == 10) {
         u4_putchar('-');
         n = -n;
@@ -1030,7 +1042,7 @@ void key_timeout(void) {
 void dots(void) {
     DATA i;
     DATA base = BASE;
-    if (base < 2 || base > 36) base = 10;
+    if (base < 2 || base > 60) base = 10;
     u4_printf("<%ld(%ld)> ", LIFO, base);
     for (i=1; i<=LIFO; i++) {
         dot(lifo[i].data, 0, 1);
@@ -1288,7 +1300,11 @@ int main(int argc, char *argv[]) {
     comma(113);
     comma(GOTO);
     comma(1);
+    comma(NOOP);
+    comma(NOOP);
     comma(tick("p0"));
+    comma(NOOP);
+    comma(NOOP);
     comma(EXIT);
     
     create("t1");
