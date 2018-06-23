@@ -39,6 +39,7 @@ typedef union {
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/time.h>
+void debug(const char *format, ...);
 static struct termios key_old, key_new;
 static void key_reset(void) {
     tcsetattr(STDIN_FILENO, TCSANOW, &key_old);
@@ -68,10 +69,14 @@ static int key_get_timeout(int timeout) {
     int c = -1;
     struct timeval tv;
     fd_set fs;
+    int milliseconds;
+    int seconds = timeout / 1000;
+    milliseconds = timeout - seconds * 1000;
     if (!isatty(STDIN_FILENO)) return getchar();
     key_use();
-    tv.tv_usec = 0;
-    tv.tv_sec = timeout;
+    tv.tv_usec = milliseconds * 1000;
+    tv.tv_sec = seconds;
+    debug("timeout=%d sec=%d msec=%d usec=%d\n", timeout, seconds, milliseconds, milliseconds * 1000); 
     FD_ZERO(&fs);
     FD_SET(STDIN_FILENO, &fs);
     select(STDIN_FILENO + 1, &fs, NULL, NULL, &tv);
@@ -88,6 +93,7 @@ void u4_printf(const char *format, ...) {
     va_start(args, format);
     vprintf(format, args);
     va_end(args);
+    fflush(stdout);
 }
 
 void one(void) {
@@ -112,15 +118,16 @@ void two(void) {
 #define LIFO_OFF (0) // data stack pointer
 #define RSTK_OFF (1) // return stack pointer
 #define BASE_OFF (2) // input / output number radix
-#define LOOP_OFF (3) // outer loop flag
-#define HERE_OFF (4) // free dictionary entry
-#define HEAD_OFF (5) // link to last work in dictionary
-#define NAME_OFF (6) // free string index
-#define TOKB_OFF (7) // token buffer index
-#define COLS_OFF (8) // column wrap number
-#define PMPT_OFF (9) // offset of prompt in string table
-#define MODE_OFF (10) // interpret / compile mode
-#define DBUG_OFF (11) // debug enable flag
+#define OUTR_OFF (3) // outer loop flag
+#define INNR_OFF (4) // inner loop flag
+#define HERE_OFF (5) // free dictionary entry
+#define HEAD_OFF (6) // link to last work in dictionary
+#define NAME_OFF (7) // free string index
+#define TOKB_OFF (8) // token buffer index
+#define COLS_OFF (9) // column wrap number
+#define PMPT_OFF (10) // offset of prompt in string table
+#define MODE_OFF (11) // interpret / compile mode
+#define DBUG_OFF (12) // debug enable flag
 
 #define WORD_OFF (DBUG_OFF + 1)
 
@@ -138,7 +145,8 @@ void two(void) {
 #define TOP (FREE0)
 
 #define BASE (dict[BASE_OFF].data)
-#define LOOP (dict[LOOP_OFF].data)
+#define OUTR (dict[OUTR_OFF].data)
+#define INNR (dict[INNR_OFF].data)
 #define HERE (dict[HERE_OFF].data)
 #define NAME (dict[NAME_OFF].data)
 #define TOKB (dict[TOKB_OFF].data)
@@ -165,7 +173,7 @@ void cold(void);
 cell_t dict[DICT_MAX] = {
     [LIFO_OFF] = {.data = 0},        // data stack pointer
     [BASE_OFF] = {.data = 10},       // output radix variable
-    [LOOP_OFF] = {.data = 1},        // running variable
+    [OUTR_OFF] = {.data = 1},        // running variable
     [HERE_OFF] = {.data = FREE0},    // free dictionary index -----------+
     [HEAD_OFF] = {.data = LINK0},    // index to head of dictionary --+  |
     [NAME_OFF] = {.data = NLEN0},    // free string index             |  |
@@ -263,7 +271,7 @@ void rdrop(void) {
 DATA dolist(DATA addr);
 
 void bye(void) {
-    LOOP = 0;
+    OUTR = 0;
 }
 
 DATA fetch(DATA addr) {
@@ -403,6 +411,12 @@ void ceq(void) {
     push(a==b);
 }
 
+void cneq(void) {
+    DATA b = pop();
+    DATA a = pop();
+    push(a!=b);
+}
+
 void cand(void) {
     DATA b = pop();
     DATA a = pop();
@@ -476,9 +490,50 @@ void u4_execute(void) {
     execute(pop());
 }
 
+/*
+begin ( immediate, pushes current address to return stack )
+...stuff...
+again ( pops the return stack and makes a goto to that point )
+----
+begin ( immediate, pushes current address to return stack )
+...stuff...
+flag
+until ( pops the return stack and makes a !=0 conditional branch to that point )
+*/
+
+void u4_begin(void) {
+    debug("rpush %ld\n", HERE);
+    rpush(HERE);
+}
+
+void comma(DATA d);
+
+void u4_again(void) {
+    DATA addr;
+    debug("GOTO -> [%ld]\n", HERE);
+    comma(GOTO);
+    addr = rpop() - HERE;
+    debug("%ld -> [%ld]\n", addr, HERE);
+    comma(addr);
+}
+
+void u4_until(void) {
+    DATA addr;
+    debug("COND -> [%ld]\n", HERE);
+    comma(COND);
+    addr = rpop() - HERE;
+    debug("%ld -> [%ld]\n", addr, HERE);
+    comma(addr);
+}
+
+#include <signal.h>
+void ctrlc(int sig) {
+    INNR = 0;
+}
+
 DATA dolist(DATA addr) {
     debug("dolist(%ld)\n", addr);
-    while (addr != EXIT) {
+    while (INNR && addr != EXIT) {
         DATA code = fetch(addr);
         DATA target;
         switch (code) {
@@ -517,12 +572,12 @@ DATA dolist(DATA addr) {
                 DATA arg = pop();
                 debug("[%ld] COND pop()=%ld jmp %ld\n", addr, arg, addr+1+target);
                 addr++;
-                if (arg == 0) {
+                if (arg) {
                     addr += target;
-                    debug("---- =0 -> jmp %ld\n", addr);
+                    debug("---- !0 -> jmp %ld\n", addr);
                 } else {
                     addr++;
-                    debug("---- !0 -> jmp %ld\n", addr);
+                    debug("---- =0 -> jmp %ld\n", addr);
                 }
                 break;
         }
@@ -909,7 +964,8 @@ DATA outer(void) {
     DATA base = BASE;
     char token_ilexeme[TMAX+1];
     if (base < 2 || base > 60) base = 10;
-    while (LOOP) {
+    while (OUTR) {
+        INNR = 1;
         token(token_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
             tokenp = 0;
@@ -966,7 +1022,7 @@ DATA outer(void) {
         }
         tokenp++;
     }
-    return LOOP;
+    return OUTR;
 }
 
 // }
@@ -1155,8 +1211,11 @@ void u4_vm(void) {
     u4_printf("rstk %-5ld %-5ld %3d%%\n", RSTK, RSTK_MAX, RSTK*100/RSTK_MAX);
 }
 
+void u4_exit(void);
+
 bulk_t vocab[] = {
     //
+    {"exit",      u4_exit},
     {"vm",        u4_vm},
     {"tron",      tron},
     {"troff",     troff},
@@ -1197,6 +1256,7 @@ bulk_t vocab[] = {
     {"<",         clt},
     {">",         cgt},
     {"==",        ceq},
+    {"!=",        cneq},
     {"not",       cnot},
     //
     {"emit",      emit},
@@ -1238,10 +1298,16 @@ void u4_init(void) {
     u4_prim(";", semi); immediate();
     u4_prim("]", closebracket); immediate();
 
+    u4_prim("begin", u4_begin); immediate();
+    u4_prim("again", u4_again); immediate();
+    u4_prim("until", u4_until); immediate();
+
     while (bulk->name != NULL) {
         u4_prim(bulk->name, bulk->func);
         bulk++;
     }
+
+    signal(SIGINT, ctrlc);
 
     cold();
 }
@@ -1253,10 +1319,15 @@ void u4_start(void) {
     }
 }
 
+void u4_exit(void) {
+    INNR = 0;
+}
+
 int main(int argc, char *argv[]) {
     u4_init();
     constant("base",     BASE_OFF);
-    constant("(loop)",   LOOP_OFF);
+    constant("(outer)",  OUTR_OFF);
+    constant("(inner)",  INNR_OFF);
     constant("(here)",   HERE_OFF);
     constant("(head)",   HEAD_OFF);
     constant("(name)",   NAME_OFF);
