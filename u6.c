@@ -112,8 +112,9 @@ void two(void) {
 #define PRIM (1)
 #define LIST (2)
 #define PUSH (3)
-#define GOTO (4)
-#define COND (5)
+#define JUMP (4)
+#define JPE0 (5)
+#define JPNZ (6)
 
 #define LIFO_OFF (0) // data stack pointer
 #define RSTK_OFF (1) // return stack pointer
@@ -493,12 +494,12 @@ void u4_execute(void) {
 /*
 begin ( immediate, pushes current address to return stack )
 ...stuff...
-again ( pops the return stack and makes a goto to that point )
+again ( pops the return stack and makes a jump to that point )
 ----
 begin ( immediate, pushes current address to return stack )
 ...stuff...
 flag
-until ( pops the return stack and makes a !=0 conditional branch to that point )
+until ( pops the return stack and makes a == 0 conditional branch to that point )
 */
 
 void u4_begin(void) {
@@ -510,8 +511,8 @@ void comma(DATA d);
 
 void u4_again(void) {
     DATA addr;
-    debug("GOTO -> [%ld]\n", HERE);
-    comma(GOTO);
+    debug("JUMP -> [%ld]\n", HERE);
+    comma(JUMP);
     addr = rpop() - HERE;
     debug("%ld -> [%ld]\n", addr, HERE);
     comma(addr);
@@ -519,8 +520,8 @@ void u4_again(void) {
 
 void u4_until(void) {
     DATA addr;
-    debug("COND -> [%ld]\n", HERE);
-    comma(COND);
+    debug("JPE0 -> [%ld]\n", HERE);
+    comma(JPE0);
     addr = rpop() - HERE;
     debug("%ld -> [%ld]\n", addr, HERE);
     comma(addr);
@@ -536,6 +537,7 @@ DATA dolist(DATA addr) {
     while (INNR && addr != EXIT) {
         DATA code = fetch(addr);
         DATA target;
+        DATA arg;
         switch (code) {
             default:
                 debug("[%ld] DATA code=%ld\n", addr, code);
@@ -561,23 +563,36 @@ DATA dolist(DATA addr) {
                 addr++;
                 push(fetch(addr++));
                 break;
-            case GOTO:
+            case JUMP:
                 target = fetch(addr+1);
-                debug("[%ld] GOTO jmp %ld\n", addr, addr+1+target);
+                debug("[%ld] JUMP %ld\n", addr, addr+1+target);
                 addr++;
                 addr += target;
                 break;
-            case COND:
+            case JPE0:
                 target = fetch(addr+1);
-                DATA arg = pop();
-                debug("[%ld] COND pop()=%ld jmp %ld\n", addr, arg, addr+1+target);
+                arg = pop();
+                debug("[%ld] %ld JPE0 %ld\n", addr, arg, addr+1+target);
                 addr++;
-                if (arg) {
+                if (arg == 0) {
                     addr += target;
-                    debug("---- !0 -> jmp %ld\n", addr);
+                    debug("     == 0 : JUMP %ld\n", addr);
                 } else {
                     addr++;
-                    debug("---- =0 -> jmp %ld\n", addr);
+                    debug("     != 0 : JUMP %ld\n", addr);
+                }
+                break;
+            case JPNZ:
+                target = fetch(addr+1);
+                arg = pop();
+                debug("[%ld] %ld JPNZ %ld\n", addr, arg, addr+1+target);
+                addr++;
+                if (arg != 0) {
+                    addr += target;
+                    debug("     != 0 : JUMP %ld\n", addr);
+                } else {
+                    addr++;
+                    debug("     == 0 : JUMP %ld\n", addr);
                 }
                 break;
         }
@@ -1255,7 +1270,7 @@ bulk_t vocab[] = {
     {"||",        cor},
     {"<",         clt},
     {">",         cgt},
-    {"==",        ceq},
+    {"=",         ceq},
     {"!=",        cneq},
     {"not",       cnot},
     //
@@ -1350,8 +1365,9 @@ int main(int argc, char *argv[]) {
     constant("(prim)", PRIM);
     constant("(list)", LIST);
     constant("(push)", PUSH);
-    constant("(goto)", GOTO);
-    constant("(cond)", COND);
+    constant("(jump)", JUMP);
+    constant("(jpe0)", JPE0);
+    constant("(jpnz)", JPNZ);
 
     create("cr");
     comma(F_LIST);
@@ -1369,7 +1385,7 @@ int main(int argc, char *argv[]) {
     comma(355);
     comma(PUSH);
     comma(113);
-    comma(GOTO);
+    comma(JUMP);
     comma(1);
     comma(NOOP);
     comma(NOOP);
@@ -1380,10 +1396,10 @@ int main(int argc, char *argv[]) {
     
     create("t1");
     comma(F_LIST);
-    comma(COND);
+    comma(JPNZ);
     comma(2);
     comma(tick("p0"));
-    comma(GOTO);
+    comma(JUMP);
     comma(3);
     comma(NOOP);
     comma(tick("p1"));
