@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/errno.h>
+#include <unistd.h>
 
 static char *splash =
 "         ___    \n"
@@ -112,9 +113,10 @@ void two(void) {
 #define PRIM (1)
 #define LIST (2)
 #define PUSH (3)
-#define JUMP (4)
-#define JPE0 (5)
-#define JPNZ (6)
+#define JUMP (4) // relative jump
+#define JPE0 (5) // relative jump TOS == 0
+#define JPNZ (6) // relative jump TOS != 0
+#define GOTO (7) // absolute jump
 
 #define LIFO_OFF (0) // data stack pointer
 #define RSTK_OFF (1) // return stack pointer
@@ -324,6 +326,10 @@ void cstore(void) {
     unsigned char *addr = (unsigned char *)pop();
     unsigned char value = (unsigned char )pop();
     *addr = value;
+}
+
+void caddr(void) {
+    push((DATA)&dict[pop()]);
 }
 
 // {
@@ -556,7 +562,6 @@ void ctrlc(int sig) {
 }
 
 DATA dolist(DATA addr) {
-    //debug("dolist(%ld)\n", addr);
     while (INNR && addr != EXIT) {
         DATA code = fetch(addr);
         DATA target;
@@ -567,6 +572,7 @@ DATA dolist(DATA addr) {
                 debug("[%ld] CODE %ld\n", addr, code);
                 switch (execute(code)) {
                     case QUIT:
+                        sleep(1); // HACKHACK
                         debug("QUIT\n");
                         addr = EXIT;
                     default:
@@ -587,6 +593,13 @@ DATA dolist(DATA addr) {
                 addr++;
                 push(fetch(addr++));
                 break;
+#if 0
+            case GOTO:
+                target = fetch(addr+1);
+                dolist(target);
+                addr++;
+                break;
+#endif
             case JUMP:
                 target = fetch(addr+1);
                 debug("[%ld] JUMP %ld\n", addr, addr+1+target);
@@ -622,6 +635,10 @@ DATA dolist(DATA addr) {
         }
     }
     return addr;
+}
+
+void u4_dolist(void) {
+    dolist(pop());
 }
 
 void comma(DATA d) {
@@ -801,11 +818,12 @@ void allot(void) {
     DATA n = pop();
     HERE += n;
 }
-    
+
 void callot(void) {
-    DATA n = pop();
-    n /= 4;
-    HERE += (((n + 3) / 4) * 4);
+    DATA c = pop();
+    DATA n = c / sizeof(DATA);
+    if (c % sizeof(DATA)) n++;
+    HERE += n;
 }
 
 void u4_prim(char *name, void (*func)(void)) {
@@ -919,6 +937,15 @@ void u4_create(void) {
         comma(F_PUSH);
         comma(HERE+1);
     }
+}
+
+void u4_does(void) {
+#if 0
+    if (MODE == F_COMP) {
+        comma(GOTO);
+        comma(HERE);
+    }
+#endif
 }
 
 void u4_constant(void) {
@@ -1270,7 +1297,8 @@ bulk_t vocab[] = {
     {"immediate", immediate},
     {"bye",       bye},
     {"'",         u4_tick},
-    //{"execute",   u4_execute},
+    {"execute",   u4_execute},
+    {"dolist",    u4_dolist},
     {"see",       u4_see},
     {"forget",    u4_forget},
     //
@@ -1280,6 +1308,7 @@ bulk_t vocab[] = {
     {"w!",        wstore},
     {"c@",        cfetch},
     {"c!",        cstore},
+    {"d>c",       caddr},
     {">r",        u4_rpush},
     {"<r",        u4_rpop},
     {"rdrop",     rdrop},
@@ -1341,9 +1370,10 @@ bulk_t vocab[] = {
 void u4_init(void) {
     bulk_t *bulk = vocab;
 
-    u4_prim("execute", u4_execute);
+    //u4_prim("execute", u4_execute);
     u4_prim(";", semi); immediate();
     u4_prim("]", closebracket); immediate();
+    u4_prim("does>", u4_does); immediate();
 
     u4_prim("begin", u4_begin); immediate();
     u4_prim("again", u4_again); immediate();
