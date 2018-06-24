@@ -502,13 +502,21 @@ void u4_execute(void) {
 
 /*
 begin ( immediate, pushes current address to return stack )
-...stuff...
+    code
 again ( pops the return stack and makes a jump to that point )
 ----
 begin ( immediate, pushes current address to return stack )
-...stuff...
-flag
+    code
+    flag
 until ( pops the return stack and makes a == 0 conditional branch to that point )
+----
+begin ( immediate, pushes current address to return stack )
+    code
+    flag
+while
+    code
+repeat
+----
 */
 
 void u4_begin(void) {
@@ -534,6 +542,12 @@ void u4_until(void) {
     addr = rpop() - HERE;
     debug("%ld -> [%ld]\n", addr, HERE);
     comma(addr);
+}
+
+void u4_while(void) {
+}
+
+void u4_repeat(void) {
 }
 
 #include <signal.h>
@@ -889,6 +903,13 @@ void u4_token(void) {
 void u4_tick(void) {
     u4_token();
     if (pop()) push(tick(tokb));
+}
+
+void u4_raw_create(void) {
+    u4_token();
+    if (pop()) {
+        create(tokb);
+    }
 }
 
 void u4_create(void) {
@@ -1303,6 +1324,7 @@ bulk_t vocab[] = {
     {"swap",      swap},
     {":",         colon},
     {"[",         openbracket},
+    {"(create)",  u4_raw_create},
     {"create",    u4_create},
     {"constant",  u4_constant},
     {"here",      here},
