@@ -457,14 +457,23 @@ char *type2name(DATA addr) {
     return &name[dict[addr - 2].data];
 }
 
-#define execute_return(n) execute_depth--; debug("execute_leave(%d) depth:%ld\n", n, execute_depth); return n
-
+//#define execute_return(n) execute_depth--; debug("execute_leave(%d) depth:%ld\n", n, execute_depth); return n
+#define execute_return(n) execute_depth--; return n
 static DATA execute_depth = 0;
+
+static void indent(void) {
+    if (!DBUG) return;
+    int i;
+    for (i=1; i<execute_depth; i++) {
+        debug("  ");
+    }
+}
 
 DATA execute(DATA addr) {
     execute_depth++;
+    indent();
     DATA code = fetch(addr);
-    debug("execute(%ld) depth:%ld\n", addr, execute_depth);
+    //debug("execute(%ld) depth:%ld\n", addr, execute_depth);
     if (code & F_PRIM) {
         debug("[%ld] PRIM \"%s\"\n", addr, type2name(addr));
         doprim(addr+1);
@@ -533,14 +542,15 @@ void ctrlc(int sig) {
 }
 
 DATA dolist(DATA addr) {
-    debug("dolist(%ld)\n", addr);
+    //debug("dolist(%ld)\n", addr);
     while (INNR && addr != EXIT) {
         DATA code = fetch(addr);
         DATA target;
         DATA arg;
+        indent();
         switch (code) {
             default:
-                debug("[%ld] DATA code=%ld\n", addr, code);
+                debug("[%ld] CODE %ld\n", addr, code);
                 switch (execute(code)) {
                     case QUIT:
                         debug("QUIT\n");
@@ -572,27 +582,27 @@ DATA dolist(DATA addr) {
             case JPE0:
                 target = fetch(addr+1);
                 arg = pop();
-                debug("[%ld] %ld JPE0 %ld\n", addr, arg, addr+1+target);
+                debug("[%ld] %ld JPE0 %ld : ", addr, arg, addr+1+target);
                 addr++;
                 if (arg == 0) {
                     addr += target;
-                    debug("     == 0 : JUMP %ld\n", addr);
+                    debug("== 0 : JUMP %ld\n", addr);
                 } else {
                     addr++;
-                    debug("     != 0 : JUMP %ld\n", addr);
+                    debug("!= 0\n");
                 }
                 break;
             case JPNZ:
                 target = fetch(addr+1);
                 arg = pop();
-                debug("[%ld] %ld JPNZ %ld\n", addr, arg, addr+1+target);
+                debug("[%ld] %ld JPNZ %ld : ", addr, arg, addr+1+target);
                 addr++;
                 if (arg != 0) {
                     addr += target;
-                    debug("     != 0 : JUMP %ld\n", addr);
+                    debug("!= 0 : JUMP %ld\n", addr);
                 } else {
                     addr++;
-                    debug("     == 0 : JUMP %ld\n", addr);
+                    debug("== 0\n");
                 }
                 break;
         }
@@ -1376,34 +1386,111 @@ int main(int argc, char *argv[]) {
     comma(tick("emit"));
     comma(EXIT);
 
-    u4_prim("p0", one);
-    u4_prim("p1", two);
+#define U4_TEST
+#ifdef U4_TEST
+    u4_prim("p1", one);
+    u4_prim("p2", two);
 
-    create("t0");
-    comma(F_LIST);
-    comma(PUSH);
-    comma(355);
-    comma(PUSH);
-    comma(113);
-    comma(JUMP);
-    comma(1);
-    comma(NOOP);
-    comma(NOOP);
-    comma(tick("p0"));
-    comma(NOOP);
-    comma(NOOP);
+    DATA tok1;
+    DATA tok2;
+
+    create("j0");
+    comma(F_LIST); // [0]
+    comma(JUMP);   // [1] ---+
+    comma(0);      // [2] <--+ works, because 0 is NOOP 
+    comma(EXIT);   // [3]
+
+    create("j1");
+    comma(F_LIST); // [0]
+    comma(JUMP);   // [1] ---+
+    comma(1);      // [2]    |
+    comma(NOOP);   // [3] <--+
     comma(EXIT);
-    
-    create("t1");
-    comma(F_LIST);
-    comma(JPNZ);
-    comma(2);
-    comma(tick("p0"));
-    comma(JUMP);
-    comma(3);
-    comma(NOOP);
-    comma(tick("p1"));
+
+    tok1 = tick("p1");
+    tok2 = tick("p2");
+
+    create("j2");
+    comma(F_LIST); // [0]
+    comma(JUMP);   // [1] ---+
+    comma(2);      // [2]    |
+    comma(tok1);   // [3]    |
+    comma(NOOP);   // [4] <--+
     comma(EXIT);
+
+    create("j3");
+    comma(F_LIST); // [0]
+    comma(JUMP);   // [1] <>
+    comma(-1);     // [2]
+    comma(EXIT);   // [3]
+
+    create("j4");
+    comma(F_LIST); // [0]
+    comma(tok1);   // [1] <--+
+    comma(JUMP);   // [2] ---+
+    comma(-2);     // [3]
+    comma(EXIT);   // [4]
+
+    create("j5");
+    comma(F_LIST); // [0]
+    comma(tok1);   // [1] <--+
+    comma(tok2);   // [2]    |
+    comma(JUMP);   // [3] ---+
+    comma(-3);     // [4]
+    comma(EXIT);   // [5]
+
+    create("c0");
+    comma(F_LIST); // [0]
+    comma(JPE0);   // [1] ---+
+    comma(2);      // [2]    |
+    comma(tok1);   // [3]    |
+    comma(tok2);   // [4] <--+
+    comma(NOOP);   // [5]
+    comma(EXIT);
+
+    create("c1");
+    comma(F_LIST); // [0]
+    comma(JPE0);   // [1] ---+
+    comma(3);      // [2]    |
+    comma(tok1);   // [3]    |
+    comma(NOOP);   // [4]    |
+    comma(tok2);   // [5] <--+
+    comma(NOOP);   // [6]
+    comma(EXIT);
+
+    create("c2");
+    comma(F_LIST); // [0]
+    comma(JPE0);   // [1] ---+
+    comma(4);      // [2]    |
+    comma(tok1);   // [3]    |
+    comma(NOOP);   // [4]    |
+    comma(NOOP);   // [5]    |
+    comma(tok2);   // [6] <--+
+    comma(NOOP);   // [7]
+    comma(EXIT);
+
+    create("c3");
+    comma(F_LIST); // [0]
+    comma(JPE0);   // [1] ---+
+    comma(4);      // [2]    |
+    comma(tok1);   // [3]    |
+    comma(JUMP);   // [4] ---|---+
+    comma(2);      // [5]    |   |
+    comma(tok2);   // [6] <--+   |
+    comma(NOOP);   // [7] <------+
+    comma(EXIT);
+
+    create("c4");
+    comma(F_LIST); // [0]
+    comma(JPNZ);   // [1] ---+
+    comma(4);      // [2]    |
+    comma(tok1);   // [3]    |
+    comma(JUMP);   // [4] ---|---+
+    comma(2);      // [5]    |   |
+    comma(tok2);   // [6] <--+   |
+    comma(NOOP);   // [7] <------+
+    comma(EXIT);
+#endif
 
     u4_start();
 
