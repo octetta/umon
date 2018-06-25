@@ -129,10 +129,12 @@ void two(void) {
 #define TOKB_OFF (8) // token buffer index
 #define COLS_OFF (9) // column wrap number
 #define PMPT_OFF (10) // offset of prompt in string table
-#define MODE_OFF (11) // interpret / compile mode
-#define DBUG_OFF (12) // debug enable flag
+#define DLIM_OFF (11) // offset of delimiters in string table
+#define MODE_OFF (12) // interpret / compile mode
+#define DBUG_OFF (13) // debug enable flag
+#define STEP_OFF (14) // step enable flag
 
-#define WORD_OFF (DBUG_OFF + 1)
+#define WORD_OFF (STEP_OFF + 1)
 
 #define NAME0 (WORD_OFF + 0)
 #define LINK0 (WORD_OFF + 1)
@@ -141,9 +143,13 @@ void two(void) {
 #define FREE0 (WORD_OFF + 4)
 
 #define COLD0 "cold\0"
+#define COLD0_OFF (0)
 #define PMPT0 "ok \0"
-#define TEXT0 COLD0 PMPT0
-#define NLEN0 (sizeof(COLD0) + sizeof(PMPT0))
+#define PMPT0_OFF (COLD0_OFF + sizeof(COLD0) - 1)
+#define DLIM0 " \r\n\t\0"
+#define DLIM0_OFF (PMPT0_OFF + sizeof(PMPT0) - 1)
+#define TEXT0 COLD0 PMPT0 DLIM0
+#define NLEN0 (sizeof(COLD0) + sizeof(PMPT0) + sizeof(DLIM0))
 
 #define TOP (FREE0)
 
@@ -158,8 +164,10 @@ void two(void) {
 #define RSTK (dict[RSTK_OFF].data)
 #define HEAD (dict[HEAD_OFF].data)
 #define PMPT (dict[PMPT_OFF].data)
+#define DLIM (dict[DLIM_OFF].data)
 #define MODE (dict[MODE_OFF].data)
 #define DBUG (dict[DBUG_OFF].data)
+#define STEP (dict[STEP_OFF].data)
 
 #define F_IMME (1<<0)
 #define F_COMP (1<<1)
@@ -174,23 +182,25 @@ void two(void) {
 void cold(void);
 
 cell_t dict[DICT_MAX] = {
-    [LIFO_OFF] = {.data = 0},        // data stack pointer
-    [BASE_OFF] = {.data = 10},       // output radix variable
-    [OUTR_OFF] = {.data = 1},        // running variable
-    [HERE_OFF] = {.data = FREE0},    // free dictionary index -----------+
-    [HEAD_OFF] = {.data = LINK0},    // index to head of dictionary --+  |
-    [NAME_OFF] = {.data = NLEN0},    // free string index             |  |
-    [TOKB_OFF] = {.data = 0},        // token input buffer index      |  |
-    [COLS_OFF] = {.data = 80},       // terminal column width         |  |
-    [PMPT_OFF] = {.data = sizeof(COLD0)-1}, // interpreter prompt     |  |
-    [MODE_OFF] = {.data = F_IMME},          // current interpret mode |  |
-    [DBUG_OFF] = {.data = 0},               // current debug mode     |  |
-    // first "real" dictionary entry (hard-coded)                     |  |
-    [NAME0] = {.data = 0},           // -----------+                  |  |
-    [LINK0] = {.data = EXIT},        // <----------|------------------+  |
-    [TYPE0] = {.data = F_PRIM | F_HIDE}, //        |                     |
-    [FUNC0] = {.func = cold},        // --------+  |                     |
-    [FREE0] = {.data = EXIT},        // <-------|--|---------------------+
+    [LIFO_OFF] = {.data = 0},         // data stack pointer
+    [BASE_OFF] = {.data = 10},        // output radix variable
+    [OUTR_OFF] = {.data = 1},         // running variable
+    [HERE_OFF] = {.data = FREE0},     // free dictionary index -----------+
+    [HEAD_OFF] = {.data = LINK0},     // index to head of dictionary --+  |
+    [NAME_OFF] = {.data = NLEN0},     // free string index             |  |
+    [TOKB_OFF] = {.data = 0},         // token input buffer index      |  |
+    [COLS_OFF] = {.data = 80},        // terminal column width         |  |
+    [PMPT_OFF] = {.data = PMPT0_OFF}, // interpreter prompt            |  |
+    [DLIM_OFF] = {.data = DLIM0_OFF}, //delimiter list                 |  |
+    [MODE_OFF] = {.data = F_IMME},          // current interpret mode  |  |
+    [DBUG_OFF] = {.data = 0},               // current debug mode      |  |
+    [STEP_OFF] = {.data = 0},               // current step mode       |  |
+    // first "real" dictionary entry (hard-coded)                      |  |
+    [NAME0] = {.data = COLD0_OFF},   // -----------+                   |  |
+    [LINK0] = {.data = EXIT},        // <----------|-------------------+  |
+    [TYPE0] = {.data = F_PRIM | F_HIDE}, //        |                      |
+    [FUNC0] = {.func = cold},        // --------+  |                      |
+    [FREE0] = {.data = EXIT},        // <-------|--|----------------------+
 };                                   //         |  |   
 char name[NAME_MAX] = TEXT0; // <---------------|--+   
 char tokb[TOKB_MAX] = ""; // token input buffer |
@@ -519,9 +529,7 @@ until ( pops the return stack and makes a == 0 conditional branch to that point 
 begin ( immediate, pushes current address to return stack )
     code
     flag
-while
-    code
-repeat
+while ( pops the return stack and makes a != 0 conditional branch to that point )
 ----
 */
 
@@ -551,9 +559,12 @@ void u4_until(void) {
 }
 
 void u4_while(void) {
-}
-
-void u4_repeat(void) {
+    DATA addr;
+    debug("JPNZ -> [%ld]\n", HERE);
+    comma(JPNZ);
+    addr = rpop() - HERE;
+    debug("%ld -> [%ld]\n", addr, HERE);
+    comma(addr);
 }
 
 #include <signal.h>
@@ -566,6 +577,13 @@ DATA dolist(DATA addr) {
         DATA code = fetch(addr);
         DATA target;
         DATA arg;
+        if (STEP) {
+            u4_printf("#");
+            if (key_get() == 'e') {
+                u4_printf("[exit]");
+                break;
+            }
+        }
         indent();
         switch (code) {
             default:
@@ -886,6 +904,7 @@ unsigned char islexeme(char c) {
 DATA tokenp = 0;
 void token(char *lexeme) {
     unsigned char collected = 0;
+    debug("token(%p)\n", lexeme);
     if (tokenb[tokenp] == '\0') {
         tokenp = -1;
         return;
@@ -921,6 +940,17 @@ void u4_token(void) {
 void u4_tick(void) {
     u4_token();
     if (pop()) push(tick(tokb));
+}
+
+void u4_bracket_tick(void) {
+    if (MODE == F_COMP) {
+        u4_tick();
+#if 0
+        comma(PUSH);
+        comma(pop());
+        comma(EXIT);
+#endif
+    }
 }
 
 void u4_raw_create(void) {
@@ -973,8 +1003,12 @@ void colon(void) {
     }
 }
 
+static DATA bracket_depth = 0;
+
 void openbracket(void) {
+    if ((MODE & F_COMP) && (bracket_depth == 0)) bracket_depth++;
     MODE = F_COMP | F_BRAC;
+    bracket_depth++;
 }
 
 void semi(void) {
@@ -986,12 +1020,17 @@ void semi(void) {
 }
 
 void closebracket(void) {
-    MODE = F_IMME;
+    bracket_depth--;
+    if (bracket_depth <= 0) {
+        MODE = F_IMME;
+        bracket_depth = 0;
+    }
 }
 
 typedef struct {
     char *name;
     void (*func)(void);
+    DATA mode;
 } bulk_t;
 
 // }
@@ -1032,6 +1071,41 @@ typedef struct {
 
 #define U4_MAX_UINT (0-1)
 
+int isdelimit(int c) {
+    if (strchr(&name[DLIM], c) != NULL) return 0;
+    return 1;
+}
+
+void u4_putchar(char c);
+static char joken_buffer[256];
+void joken(void) {
+    char inside = 0;
+    int i = 0;
+    joken_buffer[i] = '\0';
+    while (1) {
+        int c = key_get();
+        u4_putchar(c);
+        if (inside) {
+            // collect non whitespace characters
+            if (!isdelimit(c)) {
+                joken_buffer[i] = '\0';
+                break;
+            } else {
+                joken_buffer[i] = c;
+                i++;
+            }
+        } else {
+            // ignore whitespace characters
+            if (isdelimit(c)) {
+                inside = 1;
+                joken_buffer[i] = c;
+                i++;
+            }
+        }
+    }
+    u4_printf("\"%s\"\n", joken_buffer);
+}
+
 DATA outer(void) {
     DATA addr;
     DATA base = BASE;
@@ -1040,6 +1114,7 @@ DATA outer(void) {
     while (OUTR) {
         INNR = 1;
         token(token_ilexeme);
+        debug("outer(%p)\n", token_ilexeme);
         if (tokenp < 0 || tokenp >= TMAX) {
             tokenp = 0;
             break;
@@ -1060,7 +1135,7 @@ DATA outer(void) {
                 n = strtoul(token_ilexeme, &notnumber, base);
             }
             if (notnumber == token_ilexeme) {
-                u4_printf("? ");
+                u4_printf("%s? ", token_ilexeme);
             } else if (n == U4_MAX_UINT && (errno == ERANGE)) {
                 u4_printf("? out of range ");
                 n = U4_MAX_UINT;
@@ -1267,12 +1342,20 @@ void name_push(void) {
     npush((char)c);
 }
 
-void tron(void) {
+void trace_on(void) {
     DBUG = 1;
 }
 
-void troff(void) {
+void trace_off(void) {
     DBUG = 0;
+}
+
+void step_on(void) {
+    STEP = 1;
+}
+
+void step_off(void) {
+    STEP = 0;
 }
 
 void u4_vm(void) {
@@ -1286,21 +1369,37 @@ void u4_vm(void) {
 
 void u4_exit(void);
 
+void u4_test(void) {
+    u4_printf("TEST\n");
+}
+
 bulk_t vocab[] = {
+    //
+    {"joken",      joken},
     //
     {"exit",      u4_exit},
     {"vm",        u4_vm},
-    {"tron",      tron},
-    {"troff",     troff},
+    {"trace-on",  trace_on},
+    {"trace-off", trace_off},
+    {"step-on",   step_on},
+    {"step-off",  step_off},
     //
     {",",         u4_comma},
     {"immediate", immediate},
     {"bye",       bye},
     {"'",         u4_tick},
+    {"[']",       u4_bracket_tick, F_IMME},
     {"execute",   u4_execute},
     {"dolist",    u4_dolist},
     {"see",       u4_see},
     {"forget",    u4_forget},
+    {";",         semi, F_IMME},
+    {"]",         closebracket, F_IMME},
+    {"does>",     u4_does, F_IMME},
+    {"begin",     u4_begin, F_IMME},
+    {"again",     u4_again, F_IMME},
+    {"until",     u4_until, F_IMME},
+    {"while",     u4_while, F_IMME},
     //
     {"@",         u4_fetch},
     {"!",         u4_store},
@@ -1370,17 +1469,11 @@ bulk_t vocab[] = {
 void u4_init(void) {
     bulk_t *bulk = vocab;
 
-    //u4_prim("execute", u4_execute);
-    u4_prim(";", semi); immediate();
-    u4_prim("]", closebracket); immediate();
-    u4_prim("does>", u4_does); immediate();
-
-    u4_prim("begin", u4_begin); immediate();
-    u4_prim("again", u4_again); immediate();
-    u4_prim("until", u4_until); immediate();
-
     while (bulk->name != NULL) {
         u4_prim(bulk->name, bulk->func);
+        if (bulk->mode == F_IMME) {
+            immediate();
+        }
         bulk++;
     }
 
@@ -1402,16 +1495,17 @@ void u4_exit(void) {
 
 int main(int argc, char *argv[]) {
     u4_init();
-    constant("base",     BASE_OFF);
-    constant("(outer)",  OUTR_OFF);
-    constant("(inner)",  INNR_OFF);
-    constant("(here)",   HERE_OFF);
-    constant("(head)",   HEAD_OFF);
-    constant("(name)",   NAME_OFF);
-    constant("(cols)",   COLS_OFF);
-    constant("(prompt)", PMPT_OFF);
-    constant("(mode)",   MODE_OFF);
-    constant("(dbug)",   DBUG_OFF);
+    constant("base",      BASE_OFF);
+    constant("(outer)",   OUTR_OFF);
+    constant("(inner)",   INNR_OFF);
+    constant("(here)",    HERE_OFF);
+    constant("(head)",    HEAD_OFF);
+    constant("(name)",    NAME_OFF);
+    constant("(cols)",    COLS_OFF);
+    constant("(prompt)",  PMPT_OFF);
+    constant("(delimit)", DLIM_OFF);
+    constant("(mode)",    MODE_OFF);
+    constant("(dbug)",    DBUG_OFF);
 
     constant("F_IMME", F_IMME);
     constant("F_COMP", F_COMP);
