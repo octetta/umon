@@ -1077,7 +1077,8 @@ int isdelimit(int c) {
 }
 
 void u4_putchar(char c);
-static char joken_buffer[256];
+#define JMAX (256)
+static char joken_buffer[JMAX+1];
 void joken(void) {
     char inside = 0;
     int i = 0;
@@ -1102,6 +1103,7 @@ void joken(void) {
                 i++;
             }
         }
+        if (i > JMAX) i = JMAX;
     }
     u4_printf("\"%s\"\n", joken_buffer);
 }
