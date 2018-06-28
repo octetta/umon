@@ -943,13 +943,10 @@ void u4_tick(void) {
 }
 
 void u4_bracket_tick(void) {
+    u4_tick();
     if (MODE == F_COMP) {
-        u4_tick();
-#if 0
         comma(PUSH);
         comma(pop());
-        comma(EXIT);
-#endif
     }
 }
 
