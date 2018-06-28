@@ -58,6 +58,18 @@ static void key_use(void) {
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &key_new);
 }
+#include <sys/ioctl.h>
+static int key_wait(void) {
+    int r;
+    int n;
+    key_use();
+    r = ioctl(STDIN_FILENO, FIONREAD, &n);
+    key_reset();
+    if (r >= 0) {
+        return n;
+    }
+    return -1;
+}
 static int key_get(void) {
     int c;
     if (!isatty(STDIN_FILENO)) return getchar();
@@ -175,7 +187,6 @@ void two(void) {
 #define F_PRIM (1<<3)
 #define F_PUSH (1<<4)
 #define F_LIST (1<<5)
-#define F_BRAC (1<<6)
 
 #define F_SHOW (~F_HIDE)
 
@@ -1000,28 +1011,12 @@ void colon(void) {
     }
 }
 
-static DATA bracket_depth = 0;
-
-void openbracket(void) {
-    if ((MODE & F_COMP) && (bracket_depth == 0)) bracket_depth++;
-    MODE = F_COMP | F_BRAC;
-    bracket_depth++;
-}
-
 void semi(void) {
     if (MODE == F_IMME) {
         return;
     }
     comma(EXIT);
     MODE = F_IMME;
-}
-
-void closebracket(void) {
-    bracket_depth--;
-    if (bracket_depth <= 0) {
-        MODE = F_IMME;
-        bracket_depth = 0;
-    }
 }
 
 typedef struct {
@@ -1141,10 +1136,8 @@ DATA outer(void) {
             }
             if (MODE & F_COMP) {
                 // stuff token and number to dictionary
-                if ((MODE & F_BRAC) == 0) {
-                    debug("PUSH -> [%ld]\n", HERE);
-                    comma(PUSH);
-                }
+                debug("PUSH -> [%ld]\n", HERE);
+                comma(PUSH);
                 // stuff number to dictionary
                 debug("number %ld -> [%ld]\n", n, HERE);
                 comma(n);
@@ -1368,8 +1361,8 @@ void u4_vm(void) {
 
 void u4_exit(void);
 
-void u4_test(void) {
-    u4_printf("TEST\n");
+void u4_key_wait(void) {
+    push((DATA)key_wait());
 }
 
 bulk_t vocab[] = {
@@ -1393,7 +1386,6 @@ bulk_t vocab[] = {
     {"see",       u4_see},
     {"forget",    u4_forget},
     {";",         semi, F_IMME},
-    {"]",         closebracket, F_IMME},
     {"does>",     u4_does, F_IMME},
     {"begin",     u4_begin, F_IMME},
     {"again",     u4_again, F_IMME},
@@ -1433,6 +1425,7 @@ bulk_t vocab[] = {
     {"not",       cnot},
     //
     {"emit",      emit},
+    {"?key",      u4_key_wait},
     {"key",       key},
     {"kwait",     key_timeout},
     {".",         u4_dot},
@@ -1450,8 +1443,7 @@ bulk_t vocab[] = {
     {"dup",       duplicate},
     {"swap",      swap},
     {":",         colon},
-    {"[",         openbracket},
-    {"(create)",  u4_raw_create},
+    // {"(create)",  u4_raw_create},
     {"create",    u4_create},
     {"constant",  u4_constant},
     {"here",      here},
@@ -1495,6 +1487,7 @@ void u4_exit(void) {
 int main(int argc, char *argv[]) {
     u4_init();
     constant("base",      BASE_OFF);
+#if 0
     constant("(outer)",   OUTR_OFF);
     constant("(inner)",   INNR_OFF);
     constant("(here)",    HERE_OFF);
@@ -1512,7 +1505,6 @@ int main(int argc, char *argv[]) {
     constant("F_PRIM", F_PRIM);
     constant("F_PUSH", F_PRIM);
     constant("F_LIST", F_LIST);
-    constant("F_BRAC", F_BRAC);
     
     constant("(quit)", QUIT);
     constant("(exit)", EXIT);
@@ -1523,6 +1515,7 @@ int main(int argc, char *argv[]) {
     constant("(jump)", JUMP);
     constant("(jpe0)", JPE0);
     constant("(jpnz)", JPNZ);
+#endif
 
     create("cr");
     comma(F_LIST);
@@ -1531,7 +1524,7 @@ int main(int argc, char *argv[]) {
     comma(tick("emit"));
     comma(EXIT);
 
-#define U4_TEST
+//#define U4_TEST
 #ifdef U4_TEST
     u4_prim("p1", one);
     u4_prim("p2", two);
