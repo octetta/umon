@@ -1,8 +1,14 @@
 CFLAGS += -g
 
-EXE = u4 u6
+EXE = u4 u6 u7 eforth
 
 all: $(EXE)
+
+eforth: eforth.c
+	gcc -Wall -Wunused -o eforth eforth.c
+
+u7: u7.c
+	gcc -Wall -Wunused -o u7 u7.c
 
 u6: u6.c
 	gcc -Wall -Wunused -o u6 u6.c
