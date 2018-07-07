@@ -1,4 +1,12 @@
-from tkinter import *
+try:
+    from tkinter import *
+except:
+    print('maybe we are using python 2')
+    try:
+        from Tkinter import *
+    except:
+        print('cannot find Tk')
+        exit()
 
 window = Tk()
 
