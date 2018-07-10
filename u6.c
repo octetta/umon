@@ -1361,13 +1361,150 @@ void u4_vm(void) {
 
 void u4_exit(void);
 
+static DATA u4_mark_dict = 0;
+static DATA u4_mark_name = 0;
+
+void u4_mark(void) {
+    if (u4_mark_dict == 0) {
+        u4_mark_dict = HERE;
+        u4_mark_name = NAME;
+    } else {
+        u4_printf("dict %ld\n", u4_mark_dict);
+        u4_printf("name %ld\n", u4_mark_name);
+    }
+}
+
+int u4_write_data(FILE *out, DATA n) {
+    DATA x = n;
+    fwrite(&x, sizeof(DATA), 1, out);
+    return 0;
+}
+
+int u4_write_char(FILE *out, char c) {
+    char x = c;
+    fwrite(&x, sizeof(char), 1, out);
+    return 0;
+}
+
+#define U4_SAVE_FILE "u6.save"
+
+void u4_save(void) {
+    DATA i;
+
+    // u4_token();
+    //if (pop()) {
+    if (1) {
+        FILE *out;
+
+        out = fopen(U4_SAVE_FILE, "w");
+
+        if (out == NULL) {
+            u4_printf("can't save to %s\n", U4_SAVE_FILE);
+            return;
+        }
+
+        // save mark_dict
+        u4_write_data(out, u4_mark_dict);
+
+        // save mark_name
+        u4_write_data(out, u4_mark_name);
+        
+        // save HEAD
+        u4_write_data(out, HEAD);
+
+        // save HERE - mark_dict (this is the saved dict len)
+        u4_write_data(out, HERE - u4_mark_dict);
+
+        // save dict[mark_dict : HERE]
+        for (i=u4_mark_dict; i<HERE; i++) {
+            u4_write_data(out, dict[i].data);
+        }
+
+        // save NAME - mark_name (this is the saved name(s) len)
+        u4_write_data(out, NAME - u4_mark_name);
+
+        // save name[mark_name : NAME]
+        for (i=u4_mark_name; i<NAME; i++) {
+            u4_write_char(out, name[i]);
+        }
+
+        fclose(out);
+    }
+}
+
+DATA u4_read_data(FILE *in) {
+    DATA n;
+    fread(&n, sizeof(n), 1, in);
+    return n;
+}
+
+char u4_read_char(FILE *in) {
+    char c;
+    fread(&c, sizeof(c), 1, in);
+    return c;
+}
+
+void u4_load(void) {
+    if (1) {
+        FILE *in;
+        int i;
+        DATA len;
+        DATA dp;
+        DATA np;
+        DATA head;
+        in = fopen(U4_SAVE_FILE, "r");
+        if (in == NULL) {
+            u4_printf("can't read from %s\n", U4_SAVE_FILE);
+            return;
+        }
+        // read mark_dict, if does not match my mark_dict then we can't load this file
+        dp = u4_read_data(in);
+        if (dp != u4_mark_dict) {
+            u4_printf("non matching mark_dict expect:%ld, got %ld\n", u4_mark_dict, dp);
+            goto err;
+        }
+        // read mark_name, if does not match my mark_name then we can't load this file
+        np = u4_read_data(in);
+        if (np != u4_mark_name) {
+            u4_printf("non matching mark_name\n");
+            goto err;
+        }
+        // read head to temp
+        head = u4_read_data(in);
+
+        // read dict len
+        len = u4_read_data(in);
+
+        // read dict len DATA to dict[my mark_dict]
+        for (i=0; i<len; i++) {
+            dict[dp++].data = u4_read_data(in);
+        }
+
+        // read name len
+        len = u4_read_data(in);
+        // read name len chars to name[my mark_name]
+        for (i=0; i<len; i++) {
+            name[np++] = u4_read_char(in);
+        }
+        HERE = dp;
+        NAME = np;
+        HEAD = head;
+        err:
+        fclose(in);
+    }
+}
+
 void u4_key_wait(void) {
     push((DATA)key_wait());
 }
 
 bulk_t vocab[] = {
     //
-    {"joken",      joken},
+    {"mark", u4_mark},
+    {"save", u4_save},
+    {"load", u4_load},
+    //
+    {"joken",     joken},
     //
     {"exit",      u4_exit},
     {"vm",        u4_vm},
@@ -1474,6 +1611,7 @@ void u4_init(void) {
 }
 
 void u4_start(void) {
+    u4_mark();
     while (1) {
         if (input() < 0) break;
         if (outer() == 0) break;
