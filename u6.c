@@ -292,6 +292,10 @@ void rdrop(void) {
     rpop();
 }
 
+void rat(void) {
+    push(rstk[RSTK].data);
+}
+
 DATA dolist(DATA addr);
 
 void bye(void) {
@@ -1100,6 +1104,27 @@ void joken(void) {
     u4_printf("\"%s\"\n", joken_buffer);
 }
 
+#define SIMPLE_MAX (256)
+static char simple_buffer[JMAX+1];
+void simple_token(void) {
+    int delimit = pop();
+    int i = 0;
+    simple_buffer[i] = '\0';
+    while (1) {
+        int c = key_get();
+        u4_putchar(c);
+        if (c == delimit) {
+            simple_buffer[i] = '\0';
+            break;
+        } else {
+            simple_buffer[i] = c;
+            i++;
+        }
+        if (i > SIMPLE_MAX) i = SIMPLE_MAX;
+    }
+    u4_printf("\"%s\"\n", simple_buffer);
+}
+
 DATA outer(void) {
     DATA addr;
     DATA base = BASE;
@@ -1252,6 +1277,14 @@ void dotr(void) {
         dot(rstk[i].data, 0, 1);
     }
 }
+
+/*
+
+."
+
+if immediate, sets the token end character to "
+
+*/
 
 // }
 
@@ -1505,6 +1538,7 @@ bulk_t vocab[] = {
     {"load", u4_load},
     //
     {"joken",     joken},
+    {"stoken",    simple_token, F_IMME},
     //
     {"exit",      u4_exit},
     {"vm",        u4_vm},
@@ -1539,6 +1573,7 @@ bulk_t vocab[] = {
     {">r",        u4_rpush},
     {"<r",        u4_rpop},
     {"rdrop",     rdrop},
+    {"r@",        rat},
     //
     {"+",         add},
     {"-",         subtract},
